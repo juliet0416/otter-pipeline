@@ -299,8 +299,15 @@ jobs:
           REPO="${{ env.PRIVATE_REPO }}"
           for f in unsigned/*.exe; do
             [ ! -f "$f" ] && continue
-            echo "Uploading: $(basename "$f")"
-            gh release upload "$TAG" "$f" -R "$REPO" --clobber
+            NAME=$(basename "$f")
+            for attempt in 1 2 3; do
+              echo "Uploading: ${NAME} (attempt ${attempt})"
+              if gh release upload "$TAG" "$f" -R "$REPO" --clobber; then
+                break
+              fi
+              echo "Upload failed, retrying in 10s..."
+              sleep 10
+            done
           done
 
       - name: Notify Feishu
