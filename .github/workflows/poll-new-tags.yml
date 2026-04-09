@@ -1,0 +1,44 @@
+name: Poll New Tags
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest tag from ottermind
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        run: |
+          TAG=$(gh api repos/CodePhiliaX/ottermind/tags --jq '.[0].name' 2>/dev/null || echo "")
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Latest tag: ${TAG}"
+
+      - name: Check if already built
+        id: check
+        if: steps.latest.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.latest.outputs.tag }}"
+          # Check if there's a successful run with this tag
+          RUNS=$(gh run list -R juliet0416/otter-pipeline -w "Electron Release" --json displayTitle,conclusion --jq "[.[] | select(.displayTitle == \"${TAG}\" and .conclusion == \"success\")] | length")
+          if [ "$RUNS" -gt 0 ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Tag ${TAG} already built successfully, skipping"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Tag ${TAG} not yet built, triggering"
+          fi
+
+      - name: Trigger build
+        if: steps.latest.outputs.tag != '' && steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.latest.outputs.tag }}"
+          gh workflow run electron-release.yml -R juliet0416/otter-pipeline -f tag="${TAG}"
+          echo "Triggered build for ${TAG}"
