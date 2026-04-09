@@ -285,6 +285,8 @@ jobs:
 
       - name: Sign exe with USB token
         shell: bash
+        env:
+          STOREPASS: ${{ secrets.STOREPASS }}
         run: |
           EXE_PATH=$(ls unsigned/*.exe | head -1)
           echo "Signing: $EXE_PATH"
