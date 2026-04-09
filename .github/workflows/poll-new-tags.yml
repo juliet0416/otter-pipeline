@@ -37,7 +37,7 @@ jobs:
       - name: Trigger build
         if: steps.latest.outputs.tag != '' && steps.check.outputs.skip == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
         run: |
           TAG="${{ steps.latest.outputs.tag }}"
           gh workflow run electron-release.yml -R juliet0416/otter-pipeline -f tag="${TAG}"
