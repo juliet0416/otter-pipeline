@@ -8,14 +8,14 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Get latest tag from ottermind
+      - name: Get latest stable tag from ottermind
         id: latest
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
         run: |
-          TAG=$(gh api repos/CodePhiliaX/ottermind/tags --jq '.[0].name' 2>/dev/null || echo "")
+          TAG=$(gh api repos/CodePhiliaX/ottermind/tags --jq '[.[] | select(.name | test("beta|alpha|test|rc") | not)][0].name' 2>/dev/null || echo "")
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "Latest tag: ${TAG}"
+          echo "Latest stable tag: ${TAG}"
 
       - name: Check if already built
         id: check
