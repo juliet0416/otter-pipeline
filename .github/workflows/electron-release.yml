@@ -151,6 +151,7 @@ jobs:
 
       - name: Notify Feishu
         if: always()
+        continue-on-error: true
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ secrets.FEISHU_WEBHOOK }}
@@ -242,6 +243,7 @@ jobs:
 
       - name: Notify Feishu
         if: always()
+        continue-on-error: true
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ secrets.FEISHU_WEBHOOK }}
@@ -317,6 +319,7 @@ jobs:
 
       - name: Notify Feishu
         if: always()
+        continue-on-error: true
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ secrets.FEISHU_WEBHOOK }}
@@ -429,6 +432,7 @@ jobs:
 
       - name: Notify Feishu
         if: always()
+        continue-on-error: true
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ secrets.FEISHU_WEBHOOK }}
