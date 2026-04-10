@@ -376,29 +376,24 @@ jobs:
 
       - name: Merge mac yml files
         run: |
-          npm install -g js-yaml
-          node -e "
-            const fs = require('fs');
-            const yaml = require('js-yaml');
-            const arm64Path = 'assets/latest-mac-arm64.yml';
-            const x64Path = 'assets/latest-mac-x64.yml';
-            if (!fs.existsSync(arm64Path) || !fs.existsSync(x64Path)) {
-              console.log('Skip merge: missing one of the mac yml files');
-              process.exit(0);
-            }
-            const arm64 = yaml.load(fs.readFileSync(arm64Path, 'utf-8'));
-            const x64 = yaml.load(fs.readFileSync(x64Path, 'utf-8'));
-            const merged = {
-              version: arm64.version,
-              files: [...arm64.files, ...x64.files],
-              path: arm64.path,
-              sha512: arm64.sha512,
-              releaseDate: arm64.releaseDate
-            };
-            fs.writeFileSync('assets/latest-mac.yml', yaml.dump(merged));
-            console.log('Merged latest-mac.yml:');
-            console.log(fs.readFileSync('assets/latest-mac.yml', 'utf-8'));
-          "
+          ARM=assets/latest-mac-arm64.yml
+          X64=assets/latest-mac-x64.yml
+          OUT=assets/latest-mac.yml
+          if [ ! -f "$ARM" ] || [ ! -f "$X64" ]; then
+            echo "Skip merge: missing one of the mac yml files"
+            exit 0
+          fi
+          # Extract files: block (lines from 'files:' until next top-level key) from x64 yml
+          X64_FILES=$(awk '/^files:/{flag=1; next} /^[a-z]/{flag=0} flag' "$X64")
+          # Insert x64 files into arm64 yml right after its files: block
+          awk -v x64="$X64_FILES" '
+            /^files:/{print; in_files=1; next}
+            in_files && /^[a-z]/{print x64; in_files=0; print; next}
+            {print}
+            END{if(in_files) print x64}
+          ' "$ARM" > "$OUT"
+          echo "=== Merged latest-mac.yml ==="
+          cat "$OUT"
 
       - name: Upload assets to OSS
         env:
