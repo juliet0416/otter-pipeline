@@ -138,7 +138,12 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
-          for f in apps/desktop/dist/*.dmg apps/desktop/dist/*.zip apps/desktop/dist/latest-mac.yml; do
+          ARCH="${{ matrix.arch }}"
+          # Rename arch-specific yml to avoid clobbering between matrix jobs
+          if [ -f apps/desktop/dist/latest-mac.yml ]; then
+            mv apps/desktop/dist/latest-mac.yml "apps/desktop/dist/latest-mac-${ARCH}.yml"
+          fi
+          for f in apps/desktop/dist/*.dmg apps/desktop/dist/*.zip apps/desktop/dist/latest-mac-*.yml; do
             [ ! -f "$f" ] && continue
             echo "Uploading: $(basename "$f")"
             gh release upload "$TAG" "$f" -R "${{ env.PRIVATE_REPO }}" --clobber
@@ -355,20 +360,50 @@ jobs:
           OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
         run: ossutil config -e "$OSS_ENDPOINT" -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET"
 
-      - name: Download release assets & upload to OSS
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          REPO="${{ env.PRIVATE_REPO }}"
+          mkdir -p assets
+          gh release download "$TAG" -R "$REPO" --dir assets --clobber
+          echo "=== Downloaded assets ==="
+          ls -la assets/
+
+      - name: Merge mac yml files
+        run: |
+          npm install -g js-yaml
+          node -e "
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+            const arm64Path = 'assets/latest-mac-arm64.yml';
+            const x64Path = 'assets/latest-mac-x64.yml';
+            if (!fs.existsSync(arm64Path) || !fs.existsSync(x64Path)) {
+              console.log('Skip merge: missing one of the mac yml files');
+              process.exit(0);
+            }
+            const arm64 = yaml.load(fs.readFileSync(arm64Path, 'utf-8'));
+            const x64 = yaml.load(fs.readFileSync(x64Path, 'utf-8'));
+            const merged = {
+              version: arm64.version,
+              files: [...arm64.files, ...x64.files],
+              path: arm64.path,
+              sha512: arm64.sha512,
+              releaseDate: arm64.releaseDate
+            };
+            fs.writeFileSync('assets/latest-mac.yml', yaml.dump(merged));
+            console.log('Merged latest-mac.yml:');
+            console.log(fs.readFileSync('assets/latest-mac.yml', 'utf-8'));
+          "
+
+      - name: Upload assets to OSS
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TAG="${{ needs.prepare.outputs.tag }}"
-          REPO="${{ env.PRIVATE_REPO }}"
           OSS_BASE="oss://chat2db-cdn/ottermind/electron/releases/${TAG}"
-
-          mkdir -p assets
-          gh release download "$TAG" -R "$REPO" --dir assets
-
-          echo "=== Downloaded assets ==="
-          ls -la assets/
 
           echo "=== Clearing latest/ ==="
           ossutil rm -rf "oss://chat2db-cdn/ottermind/electron/releases/latest/" || true
@@ -376,6 +411,10 @@ jobs:
           for f in assets/*; do
             [ ! -f "$f" ] && continue
             NAME=$(basename "$f")
+            # Skip the per-arch yml files (only upload merged latest-mac.yml + latest.yml)
+            if [[ "$NAME" == "latest-mac-arm64.yml" || "$NAME" == "latest-mac-x64.yml" ]]; then
+              continue
+            fi
             echo "Uploading: $NAME"
             if [[ "$NAME" == *.yml ]]; then
               ossutil cp "$f" "${OSS_BASE}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
