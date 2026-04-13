@@ -280,7 +280,7 @@ jobs:
 
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && (github.event.client_payload.channel || github.event.inputs.channel || 'production') == 'production' }}
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') }}
     needs: [prepare, build-windows]
     runs-on: self-hosted
     name: Sign Windows exe
