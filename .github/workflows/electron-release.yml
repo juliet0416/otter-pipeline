@@ -280,7 +280,7 @@ jobs:
 
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') }}
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && (github.event.client_payload.channel || github.event.inputs.channel || 'production') == 'production' }}
     needs: [prepare, build-windows]
     runs-on: self-hosted
     name: Sign Windows exe
@@ -361,8 +361,8 @@ jobs:
 
   # -- Upload to OSS (stable releases only) --
   upload-oss:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' && needs.sign-windows.result == 'success' }}
-    needs: [prepare, build-mac, sign-windows]
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
+    needs: [prepare, build-mac, build-windows, sign-windows]
     runs-on: ubuntu-latest
     name: Upload to OSS
 
