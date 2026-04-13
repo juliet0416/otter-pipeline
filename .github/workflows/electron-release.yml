@@ -1,5 +1,5 @@
 name: Electron Release
-run-name: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
+run-name: ${{ github.event.client_payload.tag || github.event.inputs.tag }} (${{ github.event.client_payload.channel || github.event.inputs.channel || 'production' }})
 
 on:
   repository_dispatch:
@@ -9,6 +9,10 @@ on:
       tag:
         description: "Tag to build (e.g. v0.1.8)"
         required: true
+      channel:
+        description: "Build channel: production or dev"
+        required: false
+        default: "production"
 
 permissions:
   contents: write
@@ -19,6 +23,7 @@ concurrency:
 
 env:
   TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
+  CHANNEL: ${{ github.event.client_payload.channel || github.event.inputs.channel || 'production' }}
   PRIVATE_REPO: CodePhiliaX/ottermind
 
 jobs:
@@ -97,8 +102,18 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Create desktop .env.production from example
-        run: cp apps/desktop/.env.example apps/desktop/.env.production
+      - name: Create desktop .env.production
+        run: |
+          cp apps/desktop/.env.example apps/desktop/.env.production
+          CHANNEL="${{ env.CHANNEL }}"
+          if [ "$CHANNEL" = "dev" ]; then
+            sed -i.bak 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=dev/' apps/desktop/.env.production
+            sed -i.bak 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Dev)/' apps/desktop/.env.production
+            sed -i.bak 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.dev/' apps/desktop/.env.production
+            rm -f apps/desktop/.env.production.bak
+          fi
+          echo "=== .env.production ==="
+          cat apps/desktop/.env.production
 
       - name: Update version in package.json
         run: |
@@ -131,6 +146,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
           NOTARIZE: "true"
+          VITE_APP_CHANNEL: ${{ env.CHANNEL }}
         run: node scripts/build.mjs --mac --arch ${{ matrix.arch }}
 
       - name: Upload artifacts to release
@@ -159,7 +175,7 @@ jobs:
           content: |
             post:
               zh_cn:
-                title: "Ottermind v${{ needs.prepare.outputs.version }} · ${{ matrix.platform_label }} ${{ job.status == 'success' && '✅' || '❌' }}"
+                title: "Ottermind v${{ needs.prepare.outputs.version }} [${{ env.CHANNEL }}] · ${{ matrix.platform_label }} ${{ job.status == 'success' && '✅' || '❌' }}"
                 content:
                 - - tag: text
                     text: "Build "
@@ -227,6 +243,7 @@ jobs:
         working-directory: apps/desktop
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          VITE_APP_CHANNEL: ${{ env.CHANNEL }}
         run: node scripts/build.mjs --win
 
       - name: Upload artifacts to release
@@ -251,7 +268,7 @@ jobs:
           content: |
             post:
               zh_cn:
-                title: "Ottermind v${{ needs.prepare.outputs.version }} · Windows x64 ${{ job.status == 'success' && '✅' || '❌' }}"
+                title: "Ottermind v${{ needs.prepare.outputs.version }} [${{ env.CHANNEL }}] · Windows x64 ${{ job.status == 'success' && '✅' || '❌' }}"
                 content:
                 - - tag: text
                     text: "Build "
@@ -327,7 +344,7 @@ jobs:
           content: |
             post:
               zh_cn:
-                title: "Ottermind v${{ needs.prepare.outputs.version }} · Windows Signing ${{ job.status == 'success' && '✅' || '❌' }}"
+                title: "Ottermind v${{ needs.prepare.outputs.version }} [${{ env.CHANNEL }}] · Windows Signing ${{ job.status == 'success' && '✅' || '❌' }}"
                 content:
                 - - tag: text
                     text: "Build "
@@ -401,10 +418,19 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TAG="${{ needs.prepare.outputs.tag }}"
-          OSS_BASE="oss://chat2db-cdn/ottermind/electron/releases/${TAG}"
+          CHANNEL="${{ env.CHANNEL }}"
 
-          echo "=== Clearing latest/ ==="
-          ossutil rm -rf "oss://chat2db-cdn/ottermind/electron/releases/latest/" || true
+          if [ "$CHANNEL" = "dev" ]; then
+            OSS_BASE="oss://chat2db-cdn/ottermind/electron/dev/${TAG}"
+            OSS_LATEST="oss://chat2db-cdn/ottermind/electron/dev/latest"
+          else
+            OSS_BASE="oss://chat2db-cdn/ottermind/electron/releases/${TAG}"
+            OSS_LATEST="oss://chat2db-cdn/ottermind/electron/releases/latest"
+          fi
+
+          echo "=== Channel: ${CHANNEL}, OSS: ${OSS_BASE} ==="
+          echo "=== Clearing ${OSS_LATEST}/ ==="
+          ossutil rm -rf "${OSS_LATEST}/" || true
 
           for f in assets/*; do
             [ ! -f "$f" ] && continue
@@ -416,14 +442,14 @@ jobs:
             echo "Uploading: $NAME"
             if [[ "$NAME" == *.yml ]]; then
               ossutil cp "$f" "${OSS_BASE}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
-              ossutil cp "$f" "oss://chat2db-cdn/ottermind/electron/releases/latest/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
+              ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
             else
               ossutil cp "$f" "${OSS_BASE}/${NAME}" -f
-              ossutil cp "$f" "oss://chat2db-cdn/ottermind/electron/releases/latest/${NAME}" -f
+              ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f
             fi
           done
 
-          echo "Upload complete: https://cdn.chat2db-ai.com/ottermind/electron/releases/${TAG}/"
+          echo "Upload complete: ${OSS_LATEST}/"
 
       - name: Notify Feishu
         if: always()
@@ -435,7 +461,7 @@ jobs:
           content: |
             post:
               zh_cn:
-                title: "Ottermind ${{ needs.prepare.outputs.tag }} · OSS Upload ${{ job.status == 'success' && '✅' || '❌' }}"
+                title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] · OSS Upload ${{ job.status == 'success' && '✅' || '❌' }}"
                 content:
                 - - tag: text
                     text: "Build "
