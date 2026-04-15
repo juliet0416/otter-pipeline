@@ -448,6 +448,51 @@ jobs:
 
           echo "Upload complete: ${OSS_LATEST}/"
 
+      - name: Refresh CDN cache
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          pip install aliyun-python-sdk-cdn >/dev/null 2>&1
+          python3 - << 'PYEOF'
+          import json, hmac, hashlib, base64, urllib.parse, urllib.request, time, uuid, os
+
+          key_id = os.environ["OSS_ACCESS_KEY_ID"]
+          key_secret = os.environ["OSS_ACCESS_KEY_SECRET"]
+          channel = os.environ.get("CHANNEL", "production")
+
+          if channel == "dev":
+              path = "https://cdn.chat2db-ai.com/ottermind/electron/dev/latest/"
+          else:
+              path = "https://cdn.chat2db-ai.com/ottermind/electron/releases/latest/"
+
+          params = {
+              "Action": "RefreshObjectCaches",
+              "ObjectPath": path,
+              "ObjectType": "Directory",
+              "Format": "JSON",
+              "Version": "2018-05-10",
+              "AccessKeyId": key_id,
+              "SignatureMethod": "HMAC-SHA1",
+              "SignatureVersion": "1.0",
+              "SignatureNonce": str(uuid.uuid4()),
+              "Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+          }
+
+          sorted_qs = "&".join(f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}" for k, v in sorted(params.items()))
+          string_to_sign = f"GET&%2F&{urllib.parse.quote(sorted_qs, safe='')}"
+          sig = base64.b64encode(hmac.new((key_secret + "&").encode(), string_to_sign.encode(), hashlib.sha1).digest()).decode()
+          params["Signature"] = sig
+
+          url = f"https://cdn.aliyuncs.com/?{urllib.parse.urlencode(params)}"
+          req = urllib.request.Request(url)
+          resp = urllib.request.urlopen(req)
+          result = json.loads(resp.read())
+          print(f"CDN refresh submitted: {path}")
+          print(f"RequestId: {result.get('RequestId', 'N/A')}")
+          PYEOF
+
       - name: Notify Feishu
         if: always()
         continue-on-error: true
