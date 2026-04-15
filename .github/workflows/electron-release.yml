@@ -440,13 +440,10 @@ jobs:
               continue
             fi
             echo "Uploading: $NAME"
-            if [[ "$NAME" == *.yml ]]; then
-              ossutil cp "$f" "${OSS_BASE}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
-              ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
-            else
-              ossutil cp "$f" "${OSS_BASE}/${NAME}" -f
-              ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f
-            fi
+            # 版本化目录：正常缓存
+            ossutil cp "$f" "${OSS_BASE}/${NAME}" -f
+            # latest 目录：禁止缓存，确保 CDN 每次回源拿最新文件
+            ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
           done
 
           echo "Upload complete: ${OSS_LATEST}/"
