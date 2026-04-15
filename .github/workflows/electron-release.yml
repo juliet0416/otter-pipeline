@@ -341,30 +341,19 @@ jobs:
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           REPO="${{ env.PRIVATE_REPO }}"
-          # 下载当前 latest.yml
           gh release download "$TAG" -R "$REPO" --dir yml-update --pattern "latest.yml" --clobber || true
           if [ ! -f yml-update/latest.yml ]; then
             echo "No latest.yml found, skipping"
             exit 0
           fi
-          # 计算签名后 exe 的 sha512
           EXE_PATH=$(ls unsigned/*.exe | head -1)
-          NEW_SHA=$(shasum -a 512 "$EXE_PATH" | awk '{print $1}' | xxd -r -p | base64)
-          NEW_SIZE=$(stat -f%z "$EXE_PATH" 2>/dev/null || stat -c%s "$EXE_PATH" 2>/dev/null)
           EXE_NAME=$(basename "$EXE_PATH")
+          NEW_SHA=$(sha512sum "$EXE_PATH" | awk '{print $1}' | xxd -r -p | base64 -w0)
+          NEW_SIZE=$(stat -c%s "$EXE_PATH")
           echo "Signed exe: $EXE_NAME, sha512: $NEW_SHA, size: $NEW_SIZE"
-          # 更新 yml 中的 sha512 和 size
-          python3 -c "
-          import re, sys
-          yml = open('yml-update/latest.yml').read()
-          # 更新 files 数组中 exe 条目的 sha512 和 size
-          yml = re.sub(r'(url: ${EXE_NAME}\n\s+sha512: )\S+', r'\g<1>${NEW_SHA}', yml)
-          yml = re.sub(r'(url: ${EXE_NAME}\n\s+sha512: \S+\n\s+size: )\d+', r'\g<1>${NEW_SIZE}', yml)
-          # 更新顶级 sha512（如果 path 指向 exe）
-          if '${EXE_NAME}' in yml.split('path:')[-1].split('\n')[0]:
-              yml = re.sub(r'(path: \S+\nsha512: )\S+', r'\g<1>${NEW_SHA}', yml)
-          open('yml-update/latest.yml', 'w').write(yml)
-          "
+          # 用 sed 替换 yml 中 exe 条目的 sha512 和 size + 顶级 sha512
+          sed -i "/${EXE_NAME}/{n;s|sha512: .*|sha512: ${NEW_SHA}|;n;s|size: .*|size: ${NEW_SIZE}|}" yml-update/latest.yml
+          sed -i "/^path: ${EXE_NAME}/{ n; s|^sha512: .*|sha512: ${NEW_SHA}| }" yml-update/latest.yml
           echo "=== Updated latest.yml ==="
           cat yml-update/latest.yml
           gh release upload "$TAG" yml-update/latest.yml -R "$REPO" --clobber
