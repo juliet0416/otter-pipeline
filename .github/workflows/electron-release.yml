@@ -489,6 +489,50 @@ jobs:
           print(f"RequestId: {result.get('RequestId', 'N/A')}")
           PYEOF
 
+      - name: Prepare feishu message
+        if: always()
+        id: feishu
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          CHANNEL="${{ env.CHANNEL }}"
+          MAC="${{ needs.build-mac.result }}"
+          WIN="${{ needs.build-windows.result }}"
+          SIGN="${{ needs.sign-windows.result }}"
+          OSS="${{ job.status }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MAC_ICON=$( [ "$MAC" = "success" ] && echo "✅" || echo "❌" )
+          WIN_ICON=$( [ "$WIN" = "success" ] && echo "✅" || echo "❌" )
+          SIGN_ICON=$( [ "$SIGN" = "success" ] && echo "✅" || echo "⏭️" )
+          OSS_ICON=$( [ "$OSS" = "success" ] && echo "✅" || echo "❌" )
+
+          # 构建飞书 post 消息 JSON
+          CONTENT="["
+          CONTENT+='[{"tag":"text","text":"macOS: '"$MAC_ICON"'  Windows: '"$WIN_ICON"'  签名: '"$SIGN_ICON"'  OSS: '"$OSS_ICON"'"}],'
+          CONTENT+='[{"tag":"text","text":" "}],'
+
+          # 添加下载链接（每个一行）
+          if [ -n "$DOWNLOAD_LINKS" ]; then
+            CONTENT+='[{"tag":"text","text":"📦 下载:"}],'
+            echo -e "$DOWNLOAD_LINKS" | while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              # 格式: "- filename: url"
+              FNAME=$(echo "$line" | sed 's/^- //' | cut -d: -f1)
+              FURL=$(echo "$line" | sed 's/^- [^:]*: //')
+              echo "LINK|${FNAME}|${FURL}"
+            done > /tmp/links.txt
+
+            while IFS='|' read -r _ fname furl; do
+              CONTENT+='[{"tag":"a","text":"'"$fname"'","href":"'"$furl"'"}],'
+            done < /tmp/links.txt
+          fi
+
+          CONTENT+='[{"tag":"text","text":" "}],'
+          CONTENT+='[{"tag":"text","text":"Actions: "},{"tag":"a","text":"#${{ github.run_number }}","href":"'"$RUN_URL"'"}]'
+          CONTENT+="]"
+
+          echo "FEISHU_CONTENT=${CONTENT}" >> $GITHUB_ENV
+
       - name: Notify Feishu
         if: always()
         continue-on-error: true
@@ -500,19 +544,4 @@ jobs:
             post:
               zh_cn:
                 title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] ${{ job.status == 'success' && '✅' || '❌' }}"
-                content:
-                - - tag: text
-                    text: "构建结果："
-                - - tag: text
-                    text: "  macOS: ${{ needs.build-mac.result == 'success' && '✅' || '❌' }}  Windows: ${{ needs.build-windows.result == 'success' && '✅' || '❌' }}  签名: ${{ needs.sign-windows.result }}"
-                - - tag: text
-                    text: "  OSS: ${{ job.status }}"
-                - - tag: text
-                    text: " "
-                - - tag: text
-                    text: "Actions: "
-                  - tag: a
-                    text: "#${{ github.run_number }}"
-                    href: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                - - tag: text
-                    text: "${{ env.DOWNLOAD_LINKS }}"
+                content: ${{ env.FEISHU_CONTENT }}
