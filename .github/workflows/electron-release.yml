@@ -409,15 +409,15 @@ jobs:
           if [ "$CHANNEL" = "dev" ]; then
             OSS_BASE="oss://chat2db-cdn/ottermind/electron/dev/${TAG}"
             OSS_LATEST="oss://chat2db-cdn/ottermind/electron/dev/latest"
-            CDN_BASE="https://cdn.chat2db-ai.com/ottermind/electron/dev/latest"
+            DOWNLOAD_BASE="https://chat2db-cdn.oss-us-west-1.aliyuncs.com/ottermind/electron/dev/latest"
           elif [ "$CHANNEL" = "test" ]; then
             OSS_BASE="oss://chat2db-cdn/ottermind/electron/test/${TAG}"
             OSS_LATEST="oss://chat2db-cdn/ottermind/electron/test/latest"
-            CDN_BASE="https://cdn.chat2db-ai.com/ottermind/electron/test/latest"
+            DOWNLOAD_BASE="https://chat2db-cdn.oss-us-west-1.aliyuncs.com/ottermind/electron/test/latest"
           else
             OSS_BASE="oss://chat2db-cdn/ottermind/electron/releases/${TAG}"
             OSS_LATEST="oss://chat2db-cdn/ottermind/electron/releases/latest"
-            CDN_BASE="https://cdn.chat2db-ai.com/ottermind/electron/releases/latest"
+            DOWNLOAD_BASE="https://chat2db-cdn.oss-us-west-1.aliyuncs.com/ottermind/electron/releases/latest"
           fi
 
           echo "=== Channel: ${CHANNEL}, OSS: ${OSS_BASE} ==="
@@ -437,7 +437,7 @@ jobs:
             ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
             # 收集安装包链接（dmg/exe/AppImage）
             if [[ "$NAME" == *.dmg || "$NAME" == *.exe || "$NAME" == *.AppImage ]]; then
-              DOWNLOAD_LINKS="${DOWNLOAD_LINKS}\n- ${NAME}: ${CDN_BASE}/${NAME}"
+              DOWNLOAD_LINKS="${DOWNLOAD_LINKS}\n- ${NAME}: ${DOWNLOAD_BASE}/${NAME}"
             fi
           done
 
@@ -445,7 +445,7 @@ jobs:
           echo "DOWNLOAD_LINKS<<EOF" >> $GITHUB_ENV
           echo -e "$DOWNLOAD_LINKS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-          echo "CDN_BASE=${CDN_BASE}" >> $GITHUB_ENV
+          echo "DOWNLOAD_BASE=${DOWNLOAD_BASE}" >> $GITHUB_ENV
 
       - name: Refresh CDN cache
         continue-on-error: true
