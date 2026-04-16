@@ -10,7 +10,7 @@ on:
         description: "Tag to build (e.g. v0.1.8)"
         required: true
       channel:
-        description: "Build channel: production or dev"
+        description: "Build channel: production, dev, or test"
         required: false
         default: "production"
 
@@ -110,8 +110,16 @@ jobs:
             sed -i.bak 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=dev/' apps/desktop/.env.production
             sed -i.bak 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Dev)/' apps/desktop/.env.production
             sed -i.bak 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.dev/' apps/desktop/.env.production
-            rm -f apps/desktop/.env.production.bak
+            sed -i.bak 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-dev|' apps/desktop/.env.production
           fi
+          if [ "$CHANNEL" = "test" ]; then
+            sed -i.bak 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=test/' apps/desktop/.env.production
+            sed -i.bak 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Test)/' apps/desktop/.env.production
+            sed -i.bak 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.test/' apps/desktop/.env.production
+            sed -i.bak 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-test|' apps/desktop/.env.production
+            sed -i.bak 's|VITE_APP_URL=http://localhost:8080|VITE_APP_URL=https://test.ottermind.ai|' apps/desktop/.env.production
+          fi
+          rm -f apps/desktop/.env.production.bak
           echo "=== .env.production ==="
           cat apps/desktop/.env.production
 
@@ -155,7 +163,6 @@ jobs:
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           ARCH="${{ matrix.arch }}"
-          # Rename arch-specific yml to avoid clobbering between matrix jobs
           if [ -f apps/desktop/dist/latest-mac.yml ]; then
             mv apps/desktop/dist/latest-mac.yml "apps/desktop/dist/latest-mac-${ARCH}.yml"
           fi
@@ -164,26 +171,6 @@ jobs:
             echo "Uploading: $(basename "$f")"
             gh release upload "$TAG" "$f" -R "${{ env.PRIVATE_REPO }}" --clobber
           done
-
-      - name: Notify Feishu
-        if: always()
-        continue-on-error: true
-        uses: foxundermoon/feishu-action@v2
-        with:
-          url: ${{ secrets.FEISHU_WEBHOOK }}
-          msg_type: post
-          content: |
-            post:
-              zh_cn:
-                title: "Ottermind v${{ needs.prepare.outputs.version }} [${{ env.CHANNEL }}] · ${{ matrix.platform_label }} ${{ job.status == 'success' && '✅' || '❌' }}"
-                content:
-                - - tag: text
-                    text: "Build "
-                  - tag: a
-                    text: "#${{ github.run_number }}"
-                    href: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  - tag: text
-                    text: " ${{ job.status == 'success' && 'succeeded' || 'failed' }}"
 
   # -- Windows build --
   build-windows:
@@ -212,9 +199,26 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Create desktop .env.production from example
+      - name: Create desktop .env.production
         shell: bash
-        run: cp apps/desktop/.env.example apps/desktop/.env.production
+        run: |
+          cp apps/desktop/.env.example apps/desktop/.env.production
+          CHANNEL="${{ env.CHANNEL }}"
+          if [ "$CHANNEL" = "dev" ]; then
+            sed -i 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=dev/' apps/desktop/.env.production
+            sed -i 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Dev)/' apps/desktop/.env.production
+            sed -i 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.dev/' apps/desktop/.env.production
+            sed -i 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-dev|' apps/desktop/.env.production
+          fi
+          if [ "$CHANNEL" = "test" ]; then
+            sed -i 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=test/' apps/desktop/.env.production
+            sed -i 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Test)/' apps/desktop/.env.production
+            sed -i 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.test/' apps/desktop/.env.production
+            sed -i 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-test|' apps/desktop/.env.production
+            sed -i 's|VITE_APP_URL=http://localhost:8080|VITE_APP_URL=https://test.ottermind.ai|' apps/desktop/.env.production
+          fi
+          echo "=== .env.production ==="
+          cat apps/desktop/.env.production
 
       - name: Update version in package.json
         shell: bash
@@ -257,26 +261,6 @@ jobs:
             echo "Uploading: $(basename "$f")"
             gh release upload "$TAG" "$f" -R "${{ env.PRIVATE_REPO }}" --clobber
           done
-
-      - name: Notify Feishu
-        if: always()
-        continue-on-error: true
-        uses: foxundermoon/feishu-action@v2
-        with:
-          url: ${{ secrets.FEISHU_WEBHOOK }}
-          msg_type: post
-          content: |
-            post:
-              zh_cn:
-                title: "Ottermind v${{ needs.prepare.outputs.version }} [${{ env.CHANNEL }}] · Windows x64 ${{ job.status == 'success' && '✅' || '❌' }}"
-                content:
-                - - tag: text
-                    text: "Build "
-                  - tag: a
-                    text: "#${{ github.run_number }}"
-                    href: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  - tag: text
-                    text: " ${{ job.status == 'success' && 'succeeded' || 'failed' }}"
 
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
@@ -351,7 +335,6 @@ jobs:
           NEW_SHA=$(sha512sum "$EXE_PATH" | awk '{print $1}' | xxd -r -p | base64 -w0)
           NEW_SIZE=$(stat -c%s "$EXE_PATH")
           echo "Signed exe: $EXE_NAME, sha512: $NEW_SHA, size: $NEW_SIZE"
-          # 用 sed 替换 yml 中 exe 条目的 sha512 和 size + 顶级 sha512
           sed -i "/${EXE_NAME}/{n;s|sha512: .*|sha512: ${NEW_SHA}|;n;s|size: .*|size: ${NEW_SIZE}|}" yml-update/latest.yml
           sed -i "/^path: ${EXE_NAME}/{ n; s|^sha512: .*|sha512: ${NEW_SHA}| }" yml-update/latest.yml
           echo "=== Updated latest.yml ==="
@@ -359,32 +342,12 @@ jobs:
           gh release upload "$TAG" yml-update/latest.yml -R "$REPO" --clobber
           rm -rf yml-update
 
-      - name: Notify Feishu
-        if: always()
-        continue-on-error: true
-        uses: foxundermoon/feishu-action@v2
-        with:
-          url: ${{ secrets.FEISHU_WEBHOOK }}
-          msg_type: post
-          content: |
-            post:
-              zh_cn:
-                title: "Ottermind v${{ needs.prepare.outputs.version }} [${{ env.CHANNEL }}] · Windows Signing ${{ job.status == 'success' && '✅' || '❌' }}"
-                content:
-                - - tag: text
-                    text: "Build "
-                  - tag: a
-                    text: "#${{ github.run_number }}"
-                    href: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  - tag: text
-                    text: " ${{ job.status == 'success' && 'succeeded' || 'failed' }}"
-
       - name: Cleanup
         if: always()
         shell: bash
         run: rm -rf unsigned
 
-  # -- Upload to OSS (stable releases only) --
+  # -- Upload to OSS + Notify --
   upload-oss:
     if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
     needs: [prepare, build-mac, build-windows, sign-windows]
@@ -425,9 +388,7 @@ jobs:
             echo "Skip merge: missing one of the mac yml files"
             exit 0
           fi
-          # Extract files: block (lines from 'files:' until next top-level key) from x64 yml
           X64_FILES=$(awk '/^files:/{flag=1; next} /^[a-z]/{flag=0} flag' "$X64")
-          # Insert x64 files into arm64 yml right after its files: block
           awk -v x64="$X64_FILES" '
             /^files:/{print; in_files=1; next}
             in_files && /^[a-z]/{print x64; in_files=0; print; next}
@@ -448,30 +409,43 @@ jobs:
           if [ "$CHANNEL" = "dev" ]; then
             OSS_BASE="oss://chat2db-cdn/ottermind/electron/dev/${TAG}"
             OSS_LATEST="oss://chat2db-cdn/ottermind/electron/dev/latest"
+            CDN_BASE="https://cdn.chat2db-ai.com/ottermind/electron/dev/latest"
+          elif [ "$CHANNEL" = "test" ]; then
+            OSS_BASE="oss://chat2db-cdn/ottermind/electron/test/${TAG}"
+            OSS_LATEST="oss://chat2db-cdn/ottermind/electron/test/latest"
+            CDN_BASE="https://cdn.chat2db-ai.com/ottermind/electron/test/latest"
           else
             OSS_BASE="oss://chat2db-cdn/ottermind/electron/releases/${TAG}"
             OSS_LATEST="oss://chat2db-cdn/ottermind/electron/releases/latest"
+            CDN_BASE="https://cdn.chat2db-ai.com/ottermind/electron/releases/latest"
           fi
 
           echo "=== Channel: ${CHANNEL}, OSS: ${OSS_BASE} ==="
           echo "=== Clearing ${OSS_LATEST}/ ==="
           ossutil rm -rf "${OSS_LATEST}/" || true
 
+          # 收集下载链接
+          DOWNLOAD_LINKS=""
           for f in assets/*; do
             [ ! -f "$f" ] && continue
             NAME=$(basename "$f")
-            # Skip the per-arch yml files (only upload merged latest-mac.yml + latest.yml)
             if [[ "$NAME" == "latest-mac-arm64.yml" || "$NAME" == "latest-mac-x64.yml" ]]; then
               continue
             fi
             echo "Uploading: $NAME"
-            # 版本化目录：正常缓存
             ossutil cp "$f" "${OSS_BASE}/${NAME}" -f
-            # latest 目录：禁止缓存，确保 CDN 每次回源拿最新文件
             ossutil cp "$f" "${OSS_LATEST}/${NAME}" -f --meta "Cache-Control:no-cache, must-revalidate"
+            # 收集安装包链接（dmg/exe/AppImage）
+            if [[ "$NAME" == *.dmg || "$NAME" == *.exe || "$NAME" == *.AppImage ]]; then
+              DOWNLOAD_LINKS="${DOWNLOAD_LINKS}\n- ${NAME}: ${CDN_BASE}/${NAME}"
+            fi
           done
 
           echo "Upload complete: ${OSS_LATEST}/"
+          echo "DOWNLOAD_LINKS<<EOF" >> $GITHUB_ENV
+          echo -e "$DOWNLOAD_LINKS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "CDN_BASE=${CDN_BASE}" >> $GITHUB_ENV
 
       - name: Refresh CDN cache
         continue-on-error: true
@@ -479,19 +453,19 @@ jobs:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
-          pip install aliyun-python-sdk-cdn >/dev/null 2>&1
-          python3 - << 'PYEOF'
+          CHANNEL="${{ env.CHANNEL }}"
+          if [ "$CHANNEL" = "dev" ]; then
+            CDN_PATH="https://cdn.chat2db-ai.com/ottermind/electron/dev/latest/"
+          elif [ "$CHANNEL" = "test" ]; then
+            CDN_PATH="https://cdn.chat2db-ai.com/ottermind/electron/test/latest/"
+          else
+            CDN_PATH="https://cdn.chat2db-ai.com/ottermind/electron/releases/latest/"
+          fi
+          python3 - << PYEOF
           import json, hmac, hashlib, base64, urllib.parse, urllib.request, time, uuid, os
-
           key_id = os.environ["OSS_ACCESS_KEY_ID"]
           key_secret = os.environ["OSS_ACCESS_KEY_SECRET"]
-          channel = os.environ.get("CHANNEL", "production")
-
-          if channel == "dev":
-              path = "https://cdn.chat2db-ai.com/ottermind/electron/dev/latest/"
-          else:
-              path = "https://cdn.chat2db-ai.com/ottermind/electron/releases/latest/"
-
+          path = "${CDN_PATH}"
           params = {
               "Action": "RefreshObjectCaches",
               "ObjectPath": path,
@@ -504,15 +478,12 @@ jobs:
               "SignatureNonce": str(uuid.uuid4()),
               "Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
           }
-
           sorted_qs = "&".join(f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}" for k, v in sorted(params.items()))
           string_to_sign = f"GET&%2F&{urllib.parse.quote(sorted_qs, safe='')}"
           sig = base64.b64encode(hmac.new((key_secret + "&").encode(), string_to_sign.encode(), hashlib.sha1).digest()).decode()
           params["Signature"] = sig
-
           url = f"https://cdn.aliyuncs.com/?{urllib.parse.urlencode(params)}"
-          req = urllib.request.Request(url)
-          resp = urllib.request.urlopen(req)
+          resp = urllib.request.urlopen(urllib.request.Request(url))
           result = json.loads(resp.read())
           print(f"CDN refresh submitted: {path}")
           print(f"RequestId: {result.get('RequestId', 'N/A')}")
@@ -528,12 +499,20 @@ jobs:
           content: |
             post:
               zh_cn:
-                title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] · OSS Upload ${{ job.status == 'success' && '✅' || '❌' }}"
+                title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] ${{ job.status == 'success' && '✅' || '❌' }}"
                 content:
                 - - tag: text
-                    text: "Build "
+                    text: "构建结果："
+                - - tag: text
+                    text: "  macOS: ${{ needs.build-mac.result == 'success' && '✅' || '❌' }}  Windows: ${{ needs.build-windows.result == 'success' && '✅' || '❌' }}  签名: ${{ needs.sign-windows.result }}"
+                - - tag: text
+                    text: "  OSS: ${{ job.status }}"
+                - - tag: text
+                    text: " "
+                - - tag: text
+                    text: "Actions: "
                   - tag: a
                     text: "#${{ github.run_number }}"
                     href: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  - tag: text
-                    text: " ${{ job.status == 'success' && 'succeeded' || 'failed' }}"
+                - - tag: text
+                    text: "${{ env.DOWNLOAD_LINKS }}"
