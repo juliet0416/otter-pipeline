@@ -453,14 +453,10 @@ jobs:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
-          CHANNEL="${{ env.CHANNEL }}"
-          if [ "$CHANNEL" = "dev" ]; then
-            CDN_PATH="https://cdn.chat2db-ai.com/ottermind/electron/dev/latest/"
-          elif [ "$CHANNEL" = "test" ]; then
-            CDN_PATH="https://cdn.chat2db-ai.com/ottermind/electron/test/latest/"
-          else
-            CDN_PATH="https://cdn.chat2db-ai.com/ottermind/electron/releases/latest/"
-          fi
+          # 上提一级到 ottermind/，一次性涵盖 electron/${channel}/latest/ 下的构建产物
+          # 以及 ottermind/changelog.json（release-wizard 推上去的更新日志聚合 payload），
+          # 避免新版本发出后 desktop 客户端 fetch 到 stale CDN 缓存导致弹窗内容回退到 stub
+          CDN_PATH="https://cdn.chat2db-ai.com/ottermind/"
           python3 - << PYEOF
           import json, hmac, hashlib, base64, urllib.parse, urllib.request, time, uuid, os
           key_id = os.environ["OSS_ACCESS_KEY_ID"]
