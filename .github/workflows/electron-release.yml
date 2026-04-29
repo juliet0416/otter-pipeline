@@ -70,15 +70,20 @@ jobs:
       matrix:
         include:
           - arch: arm64
+            os: macos-latest        # = Apple Silicon (arm64)
             bun_target: bun-darwin-arm64
             sidecar_name: ottermind-server-darwin-arm64
             platform_label: "macOS Apple Silicon"
           - arch: x64
+            os: macos-13            # Intel runner，让 x64 build 在 x64 物理机上跑
             bun_target: bun-darwin-x64
             sidecar_name: ottermind-server-darwin-x64
             platform_label: "macOS Intel"
 
-    runs-on: macos-latest
+    # 必须按 arch 派发到对应 CPU 架构的 runner：electron-vite 的 V8 bytecode 是
+    # 架构相关的，跨架构 build 时塞错 bytecode 会让用户启动崩 cachedDataRejected。
+    # macos-latest 当前 = arm64 native，arm64 用它；x64 走 macos-13 (Intel)。
+    runs-on: ${{ matrix.os }}
     name: Build ${{ matrix.platform_label }}
 
     steps:
