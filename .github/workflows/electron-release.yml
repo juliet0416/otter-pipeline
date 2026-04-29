@@ -70,20 +70,19 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            os: macos-latest        # = Apple Silicon (arm64)
             bun_target: bun-darwin-arm64
             sidecar_name: ottermind-server-darwin-arm64
             platform_label: "macOS Apple Silicon"
           - arch: x64
-            os: macos-13            # Intel runner，让 x64 build 在 x64 物理机上跑
             bun_target: bun-darwin-x64
             sidecar_name: ottermind-server-darwin-x64
             platform_label: "macOS Intel"
 
-    # 必须按 arch 派发到对应 CPU 架构的 runner：electron-vite 的 V8 bytecode 是
-    # 架构相关的，跨架构 build 时塞错 bytecode 会让用户启动崩 cachedDataRejected。
-    # macos-latest 当前 = arm64 native，arm64 用它；x64 走 macos-13 (Intel)。
-    runs-on: ${{ matrix.os }}
+    # GH 现在只剩 arm64 macOS runners (macos-latest = Apple Silicon)。x64 build 跨架构编 V8 bytecode
+    # 之前导致 Intel 用户启动崩 cachedDataRejected。修：x64 job 在同 arm64 runner 上跑，
+    # 但通过 Rosetta 2 把 node_modules/electron 二进制换成 x64 版本，让 electron-vite bytecode
+    # plugin 跑 x64 V8 编译产物，跟最终打进 .app 的 x64 framework 匹配。见下面 "Cross-compile setup"。
+    runs-on: macos-latest
     name: Build ${{ matrix.platform_label }}
 
     steps:
@@ -106,6 +105,57 @@ jobs:
 
       - name: Install dependencies
         run: bun install
+
+      # x64 mac build：bun install 默认拿到 arm64 electron（runner 是 arm64），
+      # 但我们要给 mac x64 .app 编出 x64 V8 bytecode。解法：把 node_modules/electron/dist
+      # 替换成 x64 版本，electron-vite bytecode plugin spawn 这个二进制时 macOS Rosetta 2
+      # 自动把 x64 翻译执行 → V8 自认 x64 → 产出 x64 bytecode → 跟 mac x64 framework 匹配。
+      - name: Cross-compile setup (replace electron dist with x64 for Rosetta bytecode)
+        if: matrix.arch == 'x64'
+        run: |
+          ELECTRON_VERSION=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
+          # 去掉可能的 ^ ~ 等前缀
+          ELECTRON_VERSION=${ELECTRON_VERSION#^}
+          ELECTRON_VERSION=${ELECTRON_VERSION#~}
+          echo "Electron version: $ELECTRON_VERSION"
+
+          DOWNLOAD_URL="https://github.com/electron/electron/releases/download/v${ELECTRON_VERSION}/electron-v${ELECTRON_VERSION}-darwin-x64.zip"
+          echo "Downloading: $DOWNLOAD_URL"
+          curl -fSL -o /tmp/electron-x64.zip "$DOWNLOAD_URL"
+
+          # 找到 bun 实际 hoist 的 electron dist 位置（root 或 apps/desktop）
+          ELECTRON_DIST=""
+          for cand in node_modules/electron/dist apps/desktop/node_modules/electron/dist; do
+            if [ -d "$cand" ]; then
+              ELECTRON_DIST="$cand"
+              break
+            fi
+          done
+          if [ -z "$ELECTRON_DIST" ]; then
+            echo "❌ node_modules/electron/dist not found"
+            find . -path '*/node_modules/electron/dist' -maxdepth 5 -type d
+            exit 1
+          fi
+          echo "Replacing $ELECTRON_DIST with x64 framework"
+
+          rm -rf "$ELECTRON_DIST"
+          mkdir -p "$ELECTRON_DIST"
+          unzip -q /tmp/electron-x64.zip -d "$ELECTRON_DIST"
+
+          ELECTRON_BIN="$ELECTRON_DIST/Electron.app/Contents/MacOS/Electron"
+          if [ ! -f "$ELECTRON_BIN" ]; then
+            echo "❌ Electron binary not found at $ELECTRON_BIN"
+            ls -R "$ELECTRON_DIST" | head -30
+            exit 1
+          fi
+          echo "✓ Replaced. Binary arch:"
+          file "$ELECTRON_BIN"
+
+          # 确保 Rosetta 2 可用（macos-latest arm64 runner 通常预装；保险起见）
+          if ! /usr/bin/pgrep -q oahd; then
+            echo "Installing Rosetta 2..."
+            sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
+          fi
 
       - name: Create desktop .env.production
         run: |
