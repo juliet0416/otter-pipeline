@@ -72,10 +72,12 @@ jobs:
           - arch: arm64
             bun_target: bun-darwin-arm64
             sidecar_name: ottermind-server-darwin-arm64
+            driver_name: otter-driver-darwin-arm64
             platform_label: "macOS Apple Silicon"
           - arch: x64
             bun_target: bun-darwin-x64
             sidecar_name: ottermind-server-darwin-x64
+            driver_name: otter-driver-darwin-x64
             platform_label: "macOS Intel"
 
     # GH 现在只剩 arm64 macOS runners (macos-latest = Apple Silicon)。x64 build 跨架构编 V8 bytecode
@@ -199,6 +201,12 @@ jobs:
           mkdir -p build
           bun build --compile --target=${{ matrix.bun_target }} src/index.ts --outfile build/${{ matrix.sidecar_name }}
 
+      - name: Build otterDriver sidecar
+        working-directory: apps/otterDriver
+        run: |
+          mkdir -p ../desktop/resources/driver
+          bun build --compile --target=${{ matrix.bun_target }} src/index.ts --outfile ../desktop/resources/driver/${{ matrix.driver_name }}
+
       - name: Build Electron app
         working-directory: apps/desktop
         env:
@@ -297,6 +305,13 @@ jobs:
         run: |
           mkdir -p build
           bun build --compile --target=bun-windows-x64 src/index.ts --outfile build/ottermind-server-win32-x64.exe
+
+      - name: Build otterDriver sidecar
+        working-directory: apps/otterDriver
+        shell: bash
+        run: |
+          mkdir -p ../desktop/resources/driver
+          bun build --compile --target=bun-windows-x64 src/index.ts --outfile ../desktop/resources/driver/otter-driver-win32-x64.exe
 
       - name: Build Electron app
         working-directory: apps/desktop
