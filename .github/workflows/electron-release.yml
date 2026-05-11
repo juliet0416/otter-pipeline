@@ -338,6 +338,9 @@ jobs:
     needs: [prepare, build-windows]
     runs-on: self-hosted
     name: Sign Windows exe
+    # Windows signing is best-effort. If the USB-token/self-hosted runner hangs,
+    # stop waiting and let the release continue as macOS-only.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -419,7 +422,9 @@ jobs:
 
   # -- Upload to OSS + Notify --
   upload-oss:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
+    # Ship macOS as long as mac builds succeed. Windows signing is optional and
+    # may time out/fail; in that case skip Windows artifacts and publish macOS-only.
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' }}
     needs: [prepare, build-mac, build-windows, sign-windows]
     runs-on: ubuntu-latest
     name: Upload to OSS
@@ -475,6 +480,7 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           TAG="${{ needs.prepare.outputs.tag }}"
           CHANNEL="${{ env.CHANNEL }}"
+          SIGN_RESULT="${{ needs.sign-windows.result }}"
 
           if [ "$CHANNEL" = "dev" ]; then
             OSS_BASE="oss://chat2db-cdn/ottermind/electron/dev/${TAG}"
@@ -500,6 +506,10 @@ jobs:
             [ ! -f "$f" ] && continue
             NAME=$(basename "$f")
             if [[ "$NAME" == "latest-mac-arm64.yml" || "$NAME" == "latest-mac-x64.yml" ]]; then
+              continue
+            fi
+            if [[ "$SIGN_RESULT" != "success" && ( "$NAME" == *.exe || "$NAME" == "latest.yml" ) ]]; then
+              echo "Skipping Windows asset because signing result is ${SIGN_RESULT}: $NAME"
               continue
             fi
             echo "Uploading: $NAME"
