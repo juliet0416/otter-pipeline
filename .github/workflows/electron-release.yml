@@ -340,7 +340,10 @@ jobs:
     name: Sign Windows exe
     # Windows signing is best-effort. If the USB-token/self-hosted runner hangs,
     # stop waiting and let the release continue as macOS-only.
-    timeout-minutes: 15
+    # 30min: 签名机自托管 host (Mac Studio) 上行带宽 ~200KB/s, 一个 100MB Windows
+    # installer 上传 1 次最少要 8-9 分钟; 加上 download + signtool + latest.yml
+    # 更新, 15min 不够 1 次尝试就触底; 30min 给 1-2 次 attempt + 退避留余量。
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -378,17 +381,35 @@ jobs:
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           REPO="${{ env.PRIVATE_REPO }}"
+          # 签名机 (Mac Studio) 到 GitHub upload 带宽实测仅 ~200KB/s, 100MB
+          # installer 单次上传 ~8-9 分钟。gh CLI 自身没有上传超时, 在偶发上行
+          # 链路抖动时无限挂起。
+          # 这里包一层 `timeout 600s` —— 单次 attempt 上限 10 分钟覆盖正常带宽
+          # 下的完整上传 + ~1 分钟余量; 全部 3 次 attempt 加退避 ~32 分钟, 跟
+          # 任务级 timeout-minutes:30 匹配, 最坏情况由 job timeout 兜底。
+          UPLOAD_TIMEOUT=600s
           for f in unsigned/*.exe; do
             [ ! -f "$f" ] && continue
             NAME=$(basename "$f")
+            uploaded=0
             for attempt in 1 2 3; do
-              echo "Uploading: ${NAME} (attempt ${attempt})"
-              if gh release upload "$TAG" "$f" -R "$REPO" --clobber; then
+              echo "Uploading: ${NAME} (attempt ${attempt}, timeout=${UPLOAD_TIMEOUT})"
+              if timeout "$UPLOAD_TIMEOUT" gh release upload "$TAG" "$f" -R "$REPO" --clobber; then
+                uploaded=1
                 break
               fi
-              echo "Upload failed, retrying in 10s..."
+              rc=$?
+              if [ $rc -eq 124 ]; then
+                echo "Upload timed out after ${UPLOAD_TIMEOUT} (attempt ${attempt})"
+              else
+                echo "Upload failed with exit ${rc} (attempt ${attempt})"
+              fi
               sleep 10
             done
+            if [ $uploaded -ne 1 ]; then
+              echo "::error::Failed to upload ${NAME} after 3 attempts"
+              exit 1
+            fi
           done
 
       - name: Update latest.yml with signed exe hash
