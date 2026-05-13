@@ -13,11 +13,6 @@ on:
         description: "Build channel: production, dev, or test"
         required: false
         default: "production"
-      skip_windows_signing:
-        description: "Skip Windows signing and publish macOS-only assets to R2"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -339,7 +334,7 @@ jobs:
 
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && inputs.skip_windows_signing != true && github.event.client_payload.skip_windows_signing != true && github.event.client_payload.skip_windows_signing != 'true' }}
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') }}
     needs: [prepare, build-windows]
     runs-on: self-hosted
     name: Sign Windows exe
