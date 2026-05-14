@@ -129,11 +129,20 @@ jobs:
           fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
+          cat > bunfig.toml <<'EOF'
+          [install]
+          registry = "https://registry.npmjs.org"
+          linker = "hoisted"
+          EOF
+          cat > apps/desktop/.npmrc <<'EOF'
+          electron_mirror=https://github.com/electron/electron/releases/download/
+          electron_builder_binaries_mirror=https://github.com/electron-userland/electron-builder-binaries/releases/download/
+          EOF
           rm -f bun.lock bun.lockb
           bun pm cache rm || true
           for attempt in 1 2 3; do
             echo "bun install attempt ${attempt}/3"
-            if bun install --no-save; then
+            if bun install --no-save --no-cache --force --registry=https://registry.npmjs.org; then
               exit 0
             fi
             bun pm cache rm || true
@@ -316,11 +325,20 @@ jobs:
           fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
+          cat > bunfig.toml <<'EOF'
+          [install]
+          registry = "https://registry.npmjs.org"
+          linker = "hoisted"
+          EOF
+          cat > apps/desktop/.npmrc <<'EOF'
+          electron_mirror=https://github.com/electron/electron/releases/download/
+          electron_builder_binaries_mirror=https://github.com/electron-userland/electron-builder-binaries/releases/download/
+          EOF
           rm -f bun.lock bun.lockb
           bun pm cache rm || true
           for attempt in 1 2 3; do
             echo "bun install attempt ${attempt}/3"
-            if bun install --no-save; then
+            if bun install --no-save --no-cache --force --registry=https://registry.npmjs.org; then
               exit 0
             fi
             bun pm cache rm || true
