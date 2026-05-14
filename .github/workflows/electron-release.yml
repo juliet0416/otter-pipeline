@@ -161,20 +161,20 @@ jobs:
 
       - name: Create desktop .env.production
         run: |
-          cp apps/desktop/.env.example apps/desktop/.env.production
           CHANNEL="${{ env.CHANNEL }}"
           if [ "$CHANNEL" = "dev" ]; then
             sed -i.bak 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=dev/' apps/desktop/.env.production
             sed -i.bak 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Dev)/' apps/desktop/.env.production
             sed -i.bak 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.dev/' apps/desktop/.env.production
             sed -i.bak 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-dev|' apps/desktop/.env.production
+            sed -i.bak 's|VITE_APP_URL=https://ottermind.ai|VITE_APP_URL=http://localhost:8080|' apps/desktop/.env.production
           fi
           if [ "$CHANNEL" = "test" ]; then
             sed -i.bak 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=test/' apps/desktop/.env.production
             sed -i.bak 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Test)/' apps/desktop/.env.production
             sed -i.bak 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.test/' apps/desktop/.env.production
             sed -i.bak 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-test|' apps/desktop/.env.production
-            sed -i.bak 's|VITE_APP_URL=http://localhost:8080|VITE_APP_URL=https://test.ottermind.ai|' apps/desktop/.env.production
+            sed -i.bak 's|VITE_APP_URL=https://ottermind.ai|VITE_APP_URL=https://test.ottermind.ai|' apps/desktop/.env.production
           fi
           rm -f apps/desktop/.env.production.bak
           echo "=== .env.production ==="
@@ -265,20 +265,20 @@ jobs:
       - name: Create desktop .env.production
         shell: bash
         run: |
-          cp apps/desktop/.env.example apps/desktop/.env.production
           CHANNEL="${{ env.CHANNEL }}"
           if [ "$CHANNEL" = "dev" ]; then
             sed -i 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=dev/' apps/desktop/.env.production
             sed -i 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Dev)/' apps/desktop/.env.production
             sed -i 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.dev/' apps/desktop/.env.production
             sed -i 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-dev|' apps/desktop/.env.production
+            sed -i 's|VITE_APP_URL=https://ottermind.ai|VITE_APP_URL=http://localhost:8080|' apps/desktop/.env.production
           fi
           if [ "$CHANNEL" = "test" ]; then
             sed -i 's/VITE_APP_CHANNEL=production/VITE_APP_CHANNEL=test/' apps/desktop/.env.production
             sed -i 's/VITE_APP_TITLE=Ottermind/VITE_APP_TITLE=Ottermind (Test)/' apps/desktop/.env.production
             sed -i 's/VITE_APP_ID=com.ottermind.app/VITE_APP_ID=com.ottermind.test/' apps/desktop/.env.production
             sed -i 's|VITE_AGENT_DATA_DIR=~/.ottermind|VITE_AGENT_DATA_DIR=~/.ottermind-test|' apps/desktop/.env.production
-            sed -i 's|VITE_APP_URL=http://localhost:8080|VITE_APP_URL=https://test.ottermind.ai|' apps/desktop/.env.production
+            sed -i 's|VITE_APP_URL=https://ottermind.ai|VITE_APP_URL=https://test.ottermind.ai|' apps/desktop/.env.production
           fi
           echo "=== .env.production ==="
           cat apps/desktop/.env.production
