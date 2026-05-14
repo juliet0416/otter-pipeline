@@ -232,6 +232,22 @@ jobs:
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
+      - name: Use GitHub Electron mirror on macOS runner
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'apps/desktop/electron-builder.yml';
+          const source = 'mirror: https://npmmirror.com/mirrors/electron/';
+          const target = 'mirror: https://github.com/electron/electron/releases/download/';
+          const text = fs.readFileSync(path, 'utf8');
+          if (!text.includes(source)) {
+            throw new Error(`Expected Electron mirror not found in ${path}`);
+          }
+          fs.writeFileSync(path, text.replace(source, target));
+          NODE
+          grep -n -A1 'electronDownload' apps/desktop/electron-builder.yml
+
       - name: Build agent sidecar
         working-directory: apps/agent
         env:
