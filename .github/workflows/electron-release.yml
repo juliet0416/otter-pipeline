@@ -135,8 +135,8 @@ jobs:
           linker = "hoisted"
           EOF
           cat > apps/desktop/.npmrc <<'EOF'
-          electron_mirror=https://github.com/electron/electron/releases/download/
-          electron_builder_binaries_mirror=https://github.com/electron-userland/electron-builder-binaries/releases/download/
+          electron_mirror=https://npmmirror.com/mirrors/electron/
+          electron_builder_binaries_mirror=https://npmmirror.com/mirrors/electron-builder-binaries/
           EOF
           rm -f bun.lock bun.lockb
           bun pm cache rm || true
@@ -331,8 +331,8 @@ jobs:
           linker = "hoisted"
           EOF
           cat > apps/desktop/.npmrc <<'EOF'
-          electron_mirror=https://github.com/electron/electron/releases/download/
-          electron_builder_binaries_mirror=https://github.com/electron-userland/electron-builder-binaries/releases/download/
+          electron_mirror=https://npmmirror.com/mirrors/electron/
+          electron_builder_binaries_mirror=https://npmmirror.com/mirrors/electron-builder-binaries/
           EOF
           rm -f bun.lock bun.lockb
           bun pm cache rm || true
