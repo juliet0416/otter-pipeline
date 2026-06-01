@@ -13,6 +13,11 @@ on:
         description: "Build channel: production, dev, or test"
         required: false
         default: "production"
+      skip_win_sign:
+        description: "Skip Windows code signing (signer down). Ships macOS-only."
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -34,6 +39,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
       tag: ${{ steps.version.outputs.TAG }}
+      skip_win_sign: ${{ steps.flags.outputs.SKIP_WIN_SIGN }}
     steps:
       - name: Extract version
         id: version
@@ -41,6 +47,19 @@ jobs:
           TAG="${{ env.TAG }}"
           echo "TAG=${TAG}" >> $GITHUB_OUTPUT
           echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
+      - name: Resolve flags
+        id: flags
+        run: |
+          # Normalize skip_win_sign across both triggers: repository_dispatch
+          # sends a JSON boolean in client_payload, workflow_dispatch a string.
+          # Render either to a bare string and compare in shell to avoid the
+          # GHA expression boolean/string coercion gotcha downstream.
+          RAW="${{ github.event.client_payload.skip_win_sign || github.event.inputs.skip_win_sign }}"
+          if [ "$RAW" = "true" ]; then
+            echo "SKIP_WIN_SIGN=true" >> $GITHUB_OUTPUT
+          else
+            echo "SKIP_WIN_SIGN=false" >> $GITHUB_OUTPUT
+          fi
 
   # -- Create GitHub Release on private repo --
   create-release:
@@ -436,7 +455,10 @@ jobs:
 
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') }}
+    # Skipped for beta tags, or when skip_win_sign is set (signer down) — in
+    # which case upload-r2 sees sign result != 'success' and drops the Windows
+    # assets, shipping macOS-only.
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' }}
     needs: [prepare, build-windows]
     runs-on: self-hosted
     name: Sign Windows exe
@@ -448,9 +470,6 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download Windows exe from release
         shell: bash
         env:
