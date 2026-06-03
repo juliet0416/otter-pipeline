@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: electron-release-${{ github.event.client_payload.tag || github.event.inputs.tag }}
@@ -453,6 +454,14 @@ jobs:
             gh release upload "$TAG" "$f" -R "${{ env.PRIVATE_REPO }}" --clobber
           done
 
+      - name: Upload unsigned Windows exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-exe-${{ needs.prepare.outputs.tag }}
+          path: apps/desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 3
+
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
     # Skipped for beta tags, or when skip_win_sign is set (signer down) — in
@@ -470,6 +479,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Cleanup signer workspace
+        if: always()
+        shell: bash
+        run: |
+          rm -rf unsigned yml-update
+
       - name: Download Windows exe from release
         shell: bash
         env:
@@ -478,6 +493,17 @@ jobs:
           TAG="${{ needs.prepare.outputs.tag }}"
           REPO="${{ env.PRIVATE_REPO }}"
           mkdir -p unsigned
+          ARTIFACT_NAME="unsigned-windows-exe-${TAG}"
+          echo "Trying Actions artifact first: ${ARTIFACT_NAME}"
+          if gh run download "${{ github.run_id }}" \
+            -R "${{ github.repository }}" \
+            --name "${ARTIFACT_NAME}" \
+            --dir unsigned; then
+            ls -lh unsigned
+            exit 0
+          fi
+
+          echo "Artifact download failed; falling back to GitHub Release asset"
           for i in $(seq 1 30); do
             if gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
               echo "Release found"
@@ -486,7 +512,19 @@ jobs:
             echo "Waiting for release... ($i/30)"
             sleep 10
           done
-          gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"
+          for attempt in 1 2 3; do
+            rm -f unsigned/*.exe
+            echo "Downloading Windows exe from release (attempt ${attempt}/3)"
+            if timeout 180s gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
+              ls -lh unsigned
+              exit 0
+            fi
+            rc=$?
+            echo "Release download failed with exit ${rc} (attempt ${attempt}/3)"
+            sleep $((attempt * 10))
+          done
+          echo "::error::Failed to download Windows exe"
+          exit 1
 
       - name: Sign exe with USB token
         shell: bash
