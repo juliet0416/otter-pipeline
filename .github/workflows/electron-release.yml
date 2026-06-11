@@ -494,14 +494,30 @@ jobs:
           REPO="${{ env.PRIVATE_REPO }}"
           mkdir -p unsigned
           ARTIFACT_NAME="unsigned-windows-exe-${TAG}"
+          ARTIFACT_TIMEOUT=180s
           echo "Trying Actions artifact first: ${ARTIFACT_NAME}"
-          if gh run download "${{ github.run_id }}" \
-            -R "${{ github.repository }}" \
-            --name "${ARTIFACT_NAME}" \
-            --dir unsigned; then
-            ls -lh unsigned
-            exit 0
-          fi
+          for attempt in 1 2 3; do
+            rm -f unsigned/*.exe
+            echo "Downloading Actions artifact (attempt ${attempt}/3, timeout=${ARTIFACT_TIMEOUT})"
+            if timeout "$ARTIFACT_TIMEOUT" gh run download "${{ github.run_id }}" \
+              -R "${{ github.repository }}" \
+              --name "${ARTIFACT_NAME}" \
+              --dir unsigned; then
+              if ls unsigned/*.exe >/dev/null 2>&1; then
+                ls -lh unsigned
+                exit 0
+              fi
+              echo "Artifact download succeeded but no exe was found"
+            else
+              rc=$?
+              if [ $rc -eq 124 ]; then
+                echo "Artifact download timed out after ${ARTIFACT_TIMEOUT} (attempt ${attempt})"
+              else
+                echo "Artifact download failed with exit ${rc} (attempt ${attempt})"
+              fi
+            fi
+            sleep $((attempt * 10))
+          done
 
           echo "Artifact download failed; falling back to GitHub Release asset"
           for i in $(seq 1 30); do
@@ -516,20 +532,47 @@ jobs:
             rm -f unsigned/*.exe
             echo "Downloading Windows exe from release (attempt ${attempt}/3)"
             if timeout 180s gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
-              ls -lh unsigned
-              exit 0
+              if ls unsigned/*.exe >/dev/null 2>&1; then
+                ls -lh unsigned
+                exit 0
+              fi
+              echo "Release download succeeded but no exe was found"
+              rc=1
+            else
+              rc=$?
             fi
-            rc=$?
             echo "Release download failed with exit ${rc} (attempt ${attempt}/3)"
             sleep $((attempt * 10))
           done
           echo "::error::Failed to download Windows exe"
           exit 1
 
+      - name: Preflight signer host
+        shell: bash
+        run: |
+          command -v sign.sh
+          command -v timeout
+          : "${HOST_USER:?HOST_USER is required on the self-hosted runner}"
+          : "${STOREPASS:?STOREPASS is required on the self-hosted runner}"
+          WINSIGN_DIR="${WINSIGN_DIR:-/Users/chat2db/docker/github-runner/winsign}"
+          echo "Checking signer host SSH and winsign files"
+          ssh -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            -o ServerAliveInterval=5 \
+            -o ServerAliveCountMax=2 \
+            -o StrictHostKeyChecking=no \
+            -i /ssh-key/id_rsa \
+            "${HOST_USER}@host.docker.internal" \
+            "java -version >/dev/null && test -f '${WINSIGN_DIR}/jsign-6.0.jar' && test -f '${WINSIGN_DIR}/hardwareToken.cfg'"
+
       - name: Sign exe with USB token
         shell: bash
         run: |
-          EXE_PATH=$(ls unsigned/*.exe | head -1)
+          EXE_PATH=$(find unsigned -maxdepth 1 -type f -name "*.exe" | head -1)
+          if [ -z "$EXE_PATH" ]; then
+            echo "::error::No unsigned exe found before signing"
+            exit 1
+          fi
           echo "Signing: $EXE_PATH"
           sign.sh "$EXE_PATH"
 
@@ -592,7 +635,7 @@ jobs:
           sed -i "/^path: ${EXE_NAME}/{ n; s|^sha512: .*|sha512: ${NEW_SHA}| }" yml-update/latest.yml
           echo "=== Updated latest.yml ==="
           cat yml-update/latest.yml
-          gh release upload "$TAG" yml-update/latest.yml -R "$REPO" --clobber
+          timeout 180s gh release upload "$TAG" yml-update/latest.yml -R "$REPO" --clobber
           rm -rf yml-update
 
       - name: Cleanup
