@@ -114,6 +114,7 @@ jobs:
           repository: ${{ env.PRIVATE_REPO }}
           ref: ${{ needs.prepare.outputs.tag }}
           token: ${{ secrets.PRIVATE_REPO_PAT }}
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -327,6 +328,7 @@ jobs:
           repository: ${{ env.PRIVATE_REPO }}
           ref: ${{ needs.prepare.outputs.tag }}
           token: ${{ secrets.PRIVATE_REPO_PAT }}
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -488,7 +490,8 @@ jobs:
       - name: Download Windows exe from release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          PIPELINE_GH_TOKEN: ${{ github.token }}
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           REPO="${{ env.PRIVATE_REPO }}"
@@ -499,7 +502,7 @@ jobs:
           for attempt in 1 2 3; do
             rm -f unsigned/*.exe
             echo "Downloading Actions artifact (attempt ${attempt}/3, timeout=${ARTIFACT_TIMEOUT})"
-            if timeout "$ARTIFACT_TIMEOUT" gh run download "${{ github.run_id }}" \
+            if GH_TOKEN="$PIPELINE_GH_TOKEN" timeout "$ARTIFACT_TIMEOUT" gh run download "${{ github.run_id }}" \
               -R "${{ github.repository }}" \
               --name "${ARTIFACT_NAME}" \
               --dir unsigned; then
@@ -521,7 +524,7 @@ jobs:
 
           echo "Artifact download failed; falling back to GitHub Release asset"
           for i in $(seq 1 30); do
-            if gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
+            if GH_TOKEN="$PRIVATE_REPO_TOKEN" gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
               echo "Release found"
               break
             fi
@@ -531,7 +534,7 @@ jobs:
           for attempt in 1 2 3; do
             rm -f unsigned/*.exe
             echo "Downloading Windows exe from release (attempt ${attempt}/3)"
-            if timeout 180s gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
+            if GH_TOKEN="$PRIVATE_REPO_TOKEN" timeout 180s gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
               if ls unsigned/*.exe >/dev/null 2>&1; then
                 ls -lh unsigned
                 exit 0
@@ -655,6 +658,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install AWS CLI
         run: |
