@@ -464,13 +464,74 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # Stage the unsigned Windows installer somewhere the self-hosted signer can
+  # download reliably. The signer runner's GitHub path can be extremely slow,
+  # while GitHub-hosted Windows -> R2 is fast and uses secrets already required
+  # by the final upload job.
+  stage-windows-unsigned-r2:
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' }}
+    needs: [prepare, build-windows]
+    runs-on: ubuntu-latest
+    name: Stage unsigned Windows exe to R2
+
+    steps:
+      - name: Download unsigned Windows exe artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-windows-exe-${{ needs.prepare.outputs.tag }}
+          path: unsigned
+
+      - name: Install AWS CLI
+        shell: bash
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
+
+      - name: Upload unsigned exe to R2 staging
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID || 'ceca1f645523189fea5ec3a1cab2326e' }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT || 'https://ceca1f645523189fea5ec3a1cab2326e.r2.cloudflarestorage.com' }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME || 'ottermind' }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ needs.prepare.outputs.tag }}"
+          R2_BUCKET="${R2_BUCKET_NAME:-ottermind}"
+          R2_ENDPOINT="${R2_ENDPOINT:-https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com}"
+          EXE_PATH="$(find unsigned -maxdepth 1 -type f -name '*.exe' | head -n 1)"
+          if [ -z "$EXE_PATH" ]; then
+            echo "::error::No unsigned exe artifact found"
+            exit 1
+          fi
+
+          EXE_NAME="$(basename "$EXE_PATH")"
+          KEY="electron/signing-staging/${TAG}/${EXE_NAME}"
+          DEST="s3://${R2_BUCKET}/${KEY}"
+          echo "Uploading unsigned exe to ${DEST}"
+          aws s3 cp "$EXE_PATH" "$DEST" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/x-msdownload" \
+            --cache-control "no-cache, must-revalidate"
+          echo "UNSIGNED_EXE_URL=https://cdn.ottermind.ai/${KEY}" >> "$GITHUB_ENV"
+
+      - name: Print staged unsigned exe URL
+        shell: bash
+        run: |
+          echo "Staged unsigned exe: ${UNSIGNED_EXE_URL}"
+
   # -- Windows code signing (self-hosted runner with USB token) --
   sign-windows:
     # Skipped for beta tags, or when skip_win_sign is set (signer down) — in
     # which case upload-r2 sees sign result != 'success' and drops the Windows
     # assets, shipping macOS-only.
     if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' }}
-    needs: [prepare, build-windows]
+    needs: [prepare, build-windows, stage-windows-unsigned-r2]
     runs-on: self-hosted
     name: Sign Windows exe
     # Windows is a required release asset. The self-hosted Mac Studio runner can
@@ -497,6 +558,42 @@ jobs:
           mkdir -p unsigned
           ARTIFACT_NAME="unsigned-windows-exe-${TAG}"
           DOWNLOAD_TIMEOUT=180s
+          STAGED_BASE="https://cdn.ottermind.ai/electron/signing-staging/${TAG}"
+
+          echo "Trying R2 staged unsigned exe first"
+          if ASSET_NAME="$(timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
+            gh api "repos/${REPO}/releases/tags/${TAG}" \
+              --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | .name' \
+            | head -n 1)" && [ -n "$ASSET_NAME" ]; then
+            for attempt in 1 2 3; do
+              rm -f unsigned/*.exe
+              STAGED_URL="${STAGED_BASE}/${ASSET_NAME}"
+              echo "Downloading staged unsigned exe from R2 (attempt ${attempt}/3): ${STAGED_URL}"
+              if timeout --kill-after=10s "$DOWNLOAD_TIMEOUT" curl -fL \
+                --connect-timeout 20 \
+                --max-time 170 \
+                --retry 2 \
+                --retry-delay 5 \
+                -o "unsigned/${ASSET_NAME}" \
+                "${STAGED_URL}"; then
+                if ls unsigned/*.exe >/dev/null 2>&1; then
+                  ls -lh unsigned
+                  exit 0
+                fi
+                echo "R2 staged download succeeded but no exe was found"
+              else
+                rc=$?
+                if [ $rc -eq 124 ]; then
+                  echo "R2 staged download timed out after ${DOWNLOAD_TIMEOUT} (attempt ${attempt})"
+                else
+                  echo "R2 staged download failed with exit ${rc} (attempt ${attempt})"
+                fi
+              fi
+              sleep $((attempt * 10))
+            done
+          else
+            echo "Could not resolve release exe name for R2 staged download; falling back"
+          fi
 
           echo "Trying GitHub Release asset first"
           for attempt in 1 2 3; do
