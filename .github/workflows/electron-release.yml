@@ -530,7 +530,7 @@ jobs:
     # Skipped for beta tags, or when skip_win_sign is set (signer down) — in
     # which case upload-r2 sees sign result != 'success' and drops the Windows
     # assets, shipping macOS-only.
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' }}
+    if: ${{ always() && !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' && needs.build-windows.result == 'success' }}
     needs: [prepare, build-windows, stage-windows-unsigned-r2]
     runs-on: self-hosted
     name: Sign Windows exe
