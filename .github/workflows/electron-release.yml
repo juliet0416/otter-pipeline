@@ -499,18 +499,37 @@ jobs:
           DOWNLOAD_TIMEOUT=180s
 
           echo "Trying GitHub Release asset first"
-          for i in $(seq 1 30); do
-            if GH_TOKEN="$PRIVATE_REPO_TOKEN" gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
-              echo "Release found"
-              break
-            fi
-            echo "Waiting for release... ($i/30)"
-            sleep 10
-          done
           for attempt in 1 2 3; do
             rm -f unsigned/*.exe
-            echo "Downloading Windows exe from release (attempt ${attempt}/3, timeout=${DOWNLOAD_TIMEOUT})"
-            if GH_TOKEN="$PRIVATE_REPO_TOKEN" timeout "$DOWNLOAD_TIMEOUT" gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
+            echo "Resolving Windows exe release asset (attempt ${attempt}/3)"
+            set +e
+            ASSET_INFO="$(
+              timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
+                gh api "repos/${REPO}/releases/tags/${TAG}" \
+                  --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | [.id, .name, .size] | @tsv' \
+                | head -n 1
+            )"
+            rc=$?
+            set -e
+            if [ $rc -ne 0 ] || [ -z "$ASSET_INFO" ]; then
+              echo "Release exe asset not available yet (exit=${rc}, attempt=${attempt})"
+              sleep $((attempt * 10))
+              continue
+            fi
+
+            ASSET_ID="$(printf '%s' "$ASSET_INFO" | cut -f1)"
+            ASSET_NAME="$(printf '%s' "$ASSET_INFO" | cut -f2)"
+            ASSET_SIZE="$(printf '%s' "$ASSET_INFO" | cut -f3)"
+            echo "Downloading release asset: ${ASSET_NAME} (${ASSET_SIZE} bytes), timeout=${DOWNLOAD_TIMEOUT}"
+            if timeout --kill-after=10s "$DOWNLOAD_TIMEOUT" curl -fL \
+              --connect-timeout 20 \
+              --max-time 170 \
+              --retry 2 \
+              --retry-delay 5 \
+              -H "Authorization: Bearer ${PRIVATE_REPO_TOKEN}" \
+              -H "Accept: application/octet-stream" \
+              -o "unsigned/${ASSET_NAME}" \
+              "https://api.github.com/repos/${REPO}/releases/assets/${ASSET_ID}"; then
               if ls unsigned/*.exe >/dev/null 2>&1; then
                 ls -lh unsigned
                 exit 0
