@@ -496,12 +496,39 @@ jobs:
           REPO="${{ env.PRIVATE_REPO }}"
           mkdir -p unsigned
           ARTIFACT_NAME="unsigned-windows-exe-${TAG}"
-          ARTIFACT_TIMEOUT=45m
-          echo "Trying Actions artifact first: ${ARTIFACT_NAME}"
+          DOWNLOAD_TIMEOUT=180s
+
+          echo "Trying GitHub Release asset first"
+          for i in $(seq 1 30); do
+            if GH_TOKEN="$PRIVATE_REPO_TOKEN" gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
+              echo "Release found"
+              break
+            fi
+            echo "Waiting for release... ($i/30)"
+            sleep 10
+          done
           for attempt in 1 2 3; do
             rm -f unsigned/*.exe
-            echo "Downloading Actions artifact (attempt ${attempt}/3, timeout=${ARTIFACT_TIMEOUT})"
-            if GH_TOKEN="$PIPELINE_GH_TOKEN" timeout "$ARTIFACT_TIMEOUT" gh run download "${{ github.run_id }}" \
+            echo "Downloading Windows exe from release (attempt ${attempt}/3, timeout=${DOWNLOAD_TIMEOUT})"
+            if GH_TOKEN="$PRIVATE_REPO_TOKEN" timeout "$DOWNLOAD_TIMEOUT" gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
+              if ls unsigned/*.exe >/dev/null 2>&1; then
+                ls -lh unsigned
+                exit 0
+              fi
+              echo "Release download succeeded but no exe was found"
+              rc=1
+            else
+              rc=$?
+            fi
+            echo "Release download failed with exit ${rc} (attempt ${attempt}/3)"
+            sleep $((attempt * 10))
+          done
+
+          echo "Release download failed; falling back to Actions artifact: ${ARTIFACT_NAME}"
+          for attempt in 1 2 3; do
+            rm -f unsigned/*.exe
+            echo "Downloading Actions artifact (attempt ${attempt}/3, timeout=${DOWNLOAD_TIMEOUT})"
+            if GH_TOKEN="$PIPELINE_GH_TOKEN" timeout "$DOWNLOAD_TIMEOUT" gh run download "${{ github.run_id }}" \
               -R "${{ github.repository }}" \
               --name "${ARTIFACT_NAME}" \
               --dir unsigned; then
@@ -513,37 +540,11 @@ jobs:
             else
               rc=$?
               if [ $rc -eq 124 ]; then
-                echo "Artifact download timed out after ${ARTIFACT_TIMEOUT} (attempt ${attempt})"
+                echo "Artifact download timed out after ${DOWNLOAD_TIMEOUT} (attempt ${attempt})"
               else
                 echo "Artifact download failed with exit ${rc} (attempt ${attempt})"
               fi
             fi
-            sleep $((attempt * 10))
-          done
-
-          echo "Artifact download failed; falling back to GitHub Release asset"
-          for i in $(seq 1 30); do
-            if GH_TOKEN="$PRIVATE_REPO_TOKEN" gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
-              echo "Release found"
-              break
-            fi
-            echo "Waiting for release... ($i/30)"
-            sleep 10
-          done
-          for attempt in 1 2 3; do
-            rm -f unsigned/*.exe
-            echo "Downloading Windows exe from release (attempt ${attempt}/3)"
-            if GH_TOKEN="$PRIVATE_REPO_TOKEN" timeout 45m gh release download "$TAG" -R "$REPO" --dir unsigned --pattern "*.exe"; then
-              if ls unsigned/*.exe >/dev/null 2>&1; then
-                ls -lh unsigned
-                exit 0
-              fi
-              echo "Release download succeeded but no exe was found"
-              rc=1
-            else
-              rc=$?
-            fi
-            echo "Release download failed with exit ${rc} (attempt ${attempt}/3)"
             sleep $((attempt * 10))
           done
           echo "::error::Failed to download Windows exe"
