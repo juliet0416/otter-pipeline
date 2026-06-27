@@ -162,15 +162,48 @@ jobs:
           EOF
           rm -f bun.lock bun.lockb
           bun pm cache rm || true
+          install_ok=false
           for attempt in 1 2 3; do
             echo "bun install attempt ${attempt}/3"
             if bun install --no-save --no-cache --force --registry=https://registry.npmjs.org; then
-              exit 0
+              install_ok=true
+              break
             fi
             bun pm cache rm || true
             sleep $((attempt * 10))
           done
-          exit 1
+          if [ "$install_ok" != "true" ]; then
+            exit 1
+          fi
+
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const electronDir = ['node_modules/electron', 'apps/desktop/node_modules/electron']
+            .find((candidate) => fs.existsSync(path.join(candidate, 'package.json')));
+          if (!electronDir) {
+            throw new Error('electron package not found after bun install');
+          }
+
+          const dist = path.join(electronDir, 'dist');
+          if (!fs.existsSync(dist)) {
+            console.log(`Electron dist missing at ${dist}; running install.js`);
+            const result = spawnSync(process.execPath, [path.join(electronDir, 'install.js')], {
+              stdio: 'inherit',
+              env: process.env,
+            });
+            if (result.status !== 0) {
+              process.exit(result.status || 1);
+            }
+          }
+
+          if (!fs.existsSync(dist)) {
+            throw new Error(`electron dist missing after install.js: ${dist}`);
+          }
+          console.log(`Electron dist ready: ${dist}`);
+          NODE
 
       # x64 mac build：bun install 默认拿到 arm64 electron（runner 是 arm64），
       # 但我们要给 mac x64 .app 编出 x64 V8 bytecode。解法：把 node_modules/electron/dist
@@ -376,15 +409,48 @@ jobs:
           EOF
           rm -f bun.lock bun.lockb
           bun pm cache rm || true
+          install_ok=false
           for attempt in 1 2 3; do
             echo "bun install attempt ${attempt}/3"
             if bun install --no-save --no-cache --force --registry=https://registry.npmjs.org; then
-              exit 0
+              install_ok=true
+              break
             fi
             bun pm cache rm || true
             sleep $((attempt * 10))
           done
-          exit 1
+          if [ "$install_ok" != "true" ]; then
+            exit 1
+          fi
+
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const electronDir = ['node_modules/electron', 'apps/desktop/node_modules/electron']
+            .find((candidate) => fs.existsSync(path.join(candidate, 'package.json')));
+          if (!electronDir) {
+            throw new Error('electron package not found after bun install');
+          }
+
+          const dist = path.join(electronDir, 'dist');
+          if (!fs.existsSync(dist)) {
+            console.log(`Electron dist missing at ${dist}; running install.js`);
+            const result = spawnSync(process.execPath, [path.join(electronDir, 'install.js')], {
+              stdio: 'inherit',
+              env: process.env,
+            });
+            if (result.status !== 0) {
+              process.exit(result.status || 1);
+            }
+          }
+
+          if (!fs.existsSync(dist)) {
+            throw new Error(`electron dist missing after install.js: ${dist}`);
+          }
+          console.log(`Electron dist ready: ${dist}`);
+          NODE
 
       - name: Create desktop .env.production
         shell: bash
