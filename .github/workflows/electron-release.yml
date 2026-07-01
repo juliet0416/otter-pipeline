@@ -135,19 +135,26 @@ jobs:
           const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
           pkg.workspaces = [
             'apps/desktop',
+            'apps/studio',
             'apps/agent',
             'apps/otterDriver',
             'packages/api',
+            'packages/analytics',
             'packages/config',
             'packages/icons',
             'packages/observability',
+            'packages/pricing',
+            'packages/query',
             'packages/theme',
             'packages/types',
             'packages/ui',
+            'packages/user-session',
             'packages/utils',
           ];
           delete pkg.dependencies;
-          delete pkg.devDependencies;
+          pkg.devDependencies = {
+            dotenv: '^17.4.1',
+          };
           fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
@@ -279,6 +286,91 @@ jobs:
           echo "=== .env.production ==="
           cat apps/desktop/.env.production
 
+      - name: Create Studio build env
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const channel = process.env.CHANNEL || 'production';
+          const envFile = channel === 'test'
+            ? '.env.test'
+            : channel === 'dev'
+              ? '.env.development'
+              : '.env.production';
+          const sentryDsn = 'https://4e12d9d79972ad6bbd3706c711d22d14@o4511631025569792.ingest.us.sentry.io/4511631028060160';
+          const common = {
+            VITE_APP_VERSION: process.env.RELEASE_VERSION || '',
+            VITE_TURNSTILE_SITE_KEY: '0x4AAAAAABNRRTGo2PMTis62',
+            SENTRY_DSN: sentryDsn,
+            SENTRY_ERROR_SAMPLE_RATE: '1',
+            SENTRY_TRACES_SAMPLE_RATE: '0',
+            SENTRY_PROFILES_SAMPLE_RATE: '0',
+            OTTERMIND_SENTRY_TEST_EVENT: 'false',
+          };
+          const perChannel = {
+            production: {
+              VITE_APP_CHANNEL: 'production',
+              VITE_SERVER_URL: '',
+              VITE_WWW_URL: '',
+              VITE_DESKTOP_SCHEME: 'ottermind',
+              VITE_GOOGLE_CLIENT_ID: '930457071140-8e18a1plj3sejhlavj35j3or7b5kstum.apps.googleusercontent.com',
+              SENTRY_ENABLED: 'true',
+            },
+            test: {
+              VITE_APP_CHANNEL: 'test',
+              VITE_SERVER_URL: '',
+              VITE_WWW_URL: '',
+              VITE_DESKTOP_SCHEME: 'ottermind-test',
+              VITE_GOOGLE_CLIENT_ID: '930457071140-an56f47c6dd4k06utt62u3otefsl53fm.apps.googleusercontent.com',
+              SENTRY_ENABLED: 'false',
+            },
+            dev: {
+              VITE_APP_CHANNEL: 'dev',
+              VITE_SERVER_URL: '',
+              VITE_WWW_URL: 'http://localhost:8080',
+              VITE_DESKTOP_SCHEME: 'ottermind-dev',
+              VITE_GOOGLE_CLIENT_ID: '930457071140-42e11orkrgn6cq4d4hmj3hvl8atoqbbr.apps.googleusercontent.com',
+              SENTRY_ENABLED: 'false',
+            },
+          };
+          const updates = {
+            ...common,
+            ...(perChannel[channel] || perChannel.production),
+          };
+
+          function upsertEnvFile(file, values) {
+            const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+            const seen = new Set();
+            const lines = existing.split(/\r?\n/);
+            const nextLines = lines.map((line) => {
+              const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+              if (!match || values[match[1]] === undefined) {
+                return line;
+              }
+              seen.add(match[1]);
+              return `${match[1]}=${values[match[1]]}`;
+            });
+            if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== '') {
+              nextLines.push('');
+            }
+            for (const [key, value] of Object.entries(values)) {
+              if (!seen.has(key)) {
+                nextLines.push(`${key}=${value}`);
+              }
+            }
+            fs.writeFileSync(file, nextLines.join('\n').replace(/\n*$/, '\n'));
+          }
+
+          upsertEnvFile(envFile, updates);
+          console.log(`Studio build env ready: ${envFile}`);
+          for (const key of Object.keys(updates).sort()) {
+            console.log(`${key}=${key === 'SENTRY_DSN' ? '[set]' : updates[key]}`);
+          }
+          NODE
+
       - name: Update version in package.json
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -333,6 +425,8 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
           NOTARIZE: "true"
           VITE_APP_CHANNEL: ${{ env.CHANNEL }}
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+          VITE_STUDIO_RENDER_MODE: local
         run: node scripts/build.mjs --mac --arch ${{ matrix.arch }}
 
       - name: Upload artifacts to release
@@ -384,19 +478,26 @@ jobs:
           const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
           pkg.workspaces = [
             'apps/desktop',
+            'apps/studio',
             'apps/agent',
             'apps/otterDriver',
             'packages/api',
+            'packages/analytics',
             'packages/config',
             'packages/icons',
             'packages/observability',
+            'packages/pricing',
+            'packages/query',
             'packages/theme',
             'packages/types',
             'packages/ui',
+            'packages/user-session',
             'packages/utils',
           ];
           delete pkg.dependencies;
-          delete pkg.devDependencies;
+          pkg.devDependencies = {
+            dotenv: '^17.4.1',
+          };
           fs.writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
@@ -477,6 +578,91 @@ jobs:
           echo "=== .env.production ==="
           cat apps/desktop/.env.production
 
+      - name: Create Studio build env
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const channel = process.env.CHANNEL || 'production';
+          const envFile = channel === 'test'
+            ? '.env.test'
+            : channel === 'dev'
+              ? '.env.development'
+              : '.env.production';
+          const sentryDsn = 'https://4e12d9d79972ad6bbd3706c711d22d14@o4511631025569792.ingest.us.sentry.io/4511631028060160';
+          const common = {
+            VITE_APP_VERSION: process.env.RELEASE_VERSION || '',
+            VITE_TURNSTILE_SITE_KEY: '0x4AAAAAABNRRTGo2PMTis62',
+            SENTRY_DSN: sentryDsn,
+            SENTRY_ERROR_SAMPLE_RATE: '1',
+            SENTRY_TRACES_SAMPLE_RATE: '0',
+            SENTRY_PROFILES_SAMPLE_RATE: '0',
+            OTTERMIND_SENTRY_TEST_EVENT: 'false',
+          };
+          const perChannel = {
+            production: {
+              VITE_APP_CHANNEL: 'production',
+              VITE_SERVER_URL: '',
+              VITE_WWW_URL: '',
+              VITE_DESKTOP_SCHEME: 'ottermind',
+              VITE_GOOGLE_CLIENT_ID: '930457071140-8e18a1plj3sejhlavj35j3or7b5kstum.apps.googleusercontent.com',
+              SENTRY_ENABLED: 'true',
+            },
+            test: {
+              VITE_APP_CHANNEL: 'test',
+              VITE_SERVER_URL: '',
+              VITE_WWW_URL: '',
+              VITE_DESKTOP_SCHEME: 'ottermind-test',
+              VITE_GOOGLE_CLIENT_ID: '930457071140-an56f47c6dd4k06utt62u3otefsl53fm.apps.googleusercontent.com',
+              SENTRY_ENABLED: 'false',
+            },
+            dev: {
+              VITE_APP_CHANNEL: 'dev',
+              VITE_SERVER_URL: '',
+              VITE_WWW_URL: 'http://localhost:8080',
+              VITE_DESKTOP_SCHEME: 'ottermind-dev',
+              VITE_GOOGLE_CLIENT_ID: '930457071140-42e11orkrgn6cq4d4hmj3hvl8atoqbbr.apps.googleusercontent.com',
+              SENTRY_ENABLED: 'false',
+            },
+          };
+          const updates = {
+            ...common,
+            ...(perChannel[channel] || perChannel.production),
+          };
+
+          function upsertEnvFile(file, values) {
+            const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+            const seen = new Set();
+            const lines = existing.split(/\r?\n/);
+            const nextLines = lines.map((line) => {
+              const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+              if (!match || values[match[1]] === undefined) {
+                return line;
+              }
+              seen.add(match[1]);
+              return `${match[1]}=${values[match[1]]}`;
+            });
+            if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== '') {
+              nextLines.push('');
+            }
+            for (const [key, value] of Object.entries(values)) {
+              if (!seen.has(key)) {
+                nextLines.push(`${key}=${value}`);
+              }
+            }
+            fs.writeFileSync(file, nextLines.join('\n').replace(/\n*$/, '\n'));
+          }
+
+          upsertEnvFile(envFile, updates);
+          console.log(`Studio build env ready: ${envFile}`);
+          for (const key of Object.keys(updates).sort()) {
+            console.log(`${key}=${key === 'SENTRY_DSN' ? '[set]' : updates[key]}`);
+          }
+          NODE
+
       - name: Update version in package.json
         shell: bash
         run: |
@@ -512,6 +698,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
           VITE_APP_CHANNEL: ${{ env.CHANNEL }}
+          VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
+          VITE_STUDIO_RENDER_MODE: local
         run: node scripts/build.mjs --win
 
       - name: Upload artifacts to release
