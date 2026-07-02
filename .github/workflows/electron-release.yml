@@ -433,6 +433,7 @@ jobs:
           VITE_APP_CHANNEL: ${{ env.CHANNEL }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
           VITE_STUDIO_RENDER_MODE: local
+          NODE_OPTIONS: --max-old-space-size=6144
         run: node scripts/build.mjs --mac --arch ${{ matrix.arch }}
 
       - name: Upload artifacts to release
@@ -712,6 +713,7 @@ jobs:
           VITE_APP_CHANNEL: ${{ env.CHANNEL }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
           VITE_STUDIO_RENDER_MODE: local
+          NODE_OPTIONS: --max-old-space-size=6144
         run: node scripts/build.mjs --win
 
       - name: Upload artifacts to release
