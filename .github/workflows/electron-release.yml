@@ -151,6 +151,7 @@ jobs:
             'packages/ui',
             'packages/user-session',
             'packages/utils',
+            'packages/vibecoding-policy',
           ];
           pkg.dependencies = {
             ...(pkg.dependencies || {}),
@@ -501,6 +502,7 @@ jobs:
             'packages/ui',
             'packages/user-session',
             'packages/utils',
+            'packages/vibecoding-policy',
           ];
           pkg.dependencies = {
             ...(pkg.dependencies || {}),
