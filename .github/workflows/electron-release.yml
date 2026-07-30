@@ -142,7 +142,6 @@ jobs:
             'packages/analytics',
             'packages/config',
             'packages/icons',
-            'packages/observability',
             'packages/pricing',
             'packages/protocol',
             'packages/query',
@@ -217,7 +216,6 @@ jobs:
 
           echo "Building workspace packages required by the desktop release"
           (cd packages/types && bun run build)
-          (cd packages/observability && bun run build)
 
       # x64 mac build：bun install 默认拿到 arm64 electron（runner 是 arm64），
       # 但我们要给 mac x64 .app 编出 x64 V8 bytecode。解法：把 node_modules/electron/dist
@@ -493,7 +491,6 @@ jobs:
             'packages/analytics',
             'packages/config',
             'packages/icons',
-            'packages/observability',
             'packages/pricing',
             'packages/protocol',
             'packages/query',
@@ -568,7 +565,6 @@ jobs:
 
           echo "Building workspace packages required by the desktop release"
           (cd packages/types && bun run build)
-          (cd packages/observability && bun run build)
 
       - name: Create desktop .env.production
         shell: bash
