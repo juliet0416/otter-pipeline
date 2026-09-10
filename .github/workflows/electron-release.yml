@@ -31,6 +31,7 @@ env:
   TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   CHANNEL: ${{ github.event.client_payload.channel || github.event.inputs.channel || 'production' }}
   PRIVATE_REPO: OtterMind/ottermind
+  RELEASE_REPO: ${{ github.repository }}
 
 jobs:
   # -- Extract version --
@@ -62,7 +63,7 @@ jobs:
             echo "SKIP_WIN_SIGN=false" >> $GITHUB_OUTPUT
           fi
 
-  # -- Create GitHub Release on private repo --
+  # -- Stage release assets in this repository using its scoped workflow token --
   create-release:
     needs: prepare
     runs-on: ubuntu-latest
@@ -70,16 +71,18 @@ jobs:
     steps:
       - name: Create GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           VERSION="${{ needs.prepare.outputs.version }}"
           TITLE="Ottermind v${VERSION}"
-          IS_BETA=${{ contains(needs.prepare.outputs.tag, 'beta') }}
-          if [ "$IS_BETA" = "true" ]; then
-            gh release create "$TAG" -R "${{ env.PRIVATE_REPO }}" --title "$TITLE" --notes "" --draft --prerelease || echo "Release already exists"
+          # Keep staging artifacts private until signing and CDN upload finish.
+          if gh release view "$TAG" -R "${{ env.RELEASE_REPO }}" >/dev/null 2>&1; then
+            echo "Release already exists"
           else
-            gh release create "$TAG" -R "${{ env.PRIVATE_REPO }}" --title "$TITLE" --notes "" --latest || echo "Release already exists"
+            gh release create "$TAG" -R "${{ env.RELEASE_REPO }}" \
+              --target "$GITHUB_SHA" --title "$TITLE" --draft \
+              --notes "Source: https://github.com/${{ env.PRIVATE_REPO }}/tree/${TAG}"
           fi
 
   # -- macOS builds --
@@ -447,7 +450,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
           NOTARIZE: "true"
           VITE_APP_CHANNEL: ${{ env.CHANNEL }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
@@ -479,7 +482,7 @@ jobs:
 
       - name: Upload artifacts to release
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           ARCH="${{ matrix.arch }}"
@@ -489,7 +492,7 @@ jobs:
           for f in apps/desktop/dist/*.dmg apps/desktop/dist/*.zip apps/desktop/dist/latest-mac-*.yml; do
             [ ! -f "$f" ] && continue
             echo "Uploading: $(basename "$f")"
-            gh release upload "$TAG" "$f" -R "${{ env.PRIVATE_REPO }}" --clobber
+            gh release upload "$TAG" "$f" -R "${{ env.RELEASE_REPO }}" --clobber
           done
 
   # -- Windows build --
@@ -737,7 +740,7 @@ jobs:
       - name: Build Electron app
         working-directory: apps/desktop
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
           VITE_APP_CHANNEL: ${{ env.CHANNEL }}
           VITE_APP_VERSION: ${{ needs.prepare.outputs.version }}
           VITE_STUDIO_RENDER_MODE: local
@@ -747,13 +750,13 @@ jobs:
       - name: Upload artifacts to release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           for f in apps/desktop/dist/*.exe apps/desktop/dist/latest.yml; do
             [ ! -f "$f" ] && continue
             echo "Uploading: $(basename "$f")"
-            gh release upload "$TAG" "$f" -R "${{ env.PRIVATE_REPO }}" --clobber
+            gh release upload "$TAG" "$f" -R "${{ env.RELEASE_REPO }}" --clobber
           done
 
       - name: Upload unsigned Windows exe artifact
@@ -851,17 +854,17 @@ jobs:
         shell: bash
         env:
           PIPELINE_GH_TOKEN: ${{ github.token }}
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          RELEASE_GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
-          REPO="${{ env.PRIVATE_REPO }}"
+          REPO="${{ env.RELEASE_REPO }}"
           mkdir -p unsigned
           ARTIFACT_NAME="unsigned-windows-exe-${TAG}"
           DOWNLOAD_TIMEOUT=180s
           STAGED_BASE="https://cdn.ottermind.ai/electron/signing-staging/${TAG}"
 
           echo "Trying R2 staged unsigned exe first"
-          if ASSET_NAME="$(timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
+          if ASSET_NAME="$(timeout --kill-after=10s 30s env GH_TOKEN="$RELEASE_GH_TOKEN" \
             gh api "repos/${REPO}/releases/tags/${TAG}" \
               --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | .name' \
             | head -n 1)" && [ -n "$ASSET_NAME" ]; then
@@ -901,7 +904,7 @@ jobs:
             echo "Resolving Windows exe release asset (attempt ${attempt}/3)"
             set +e
             ASSET_INFO="$(
-              timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
+              timeout --kill-after=10s 30s env GH_TOKEN="$RELEASE_GH_TOKEN" \
                 gh api "repos/${REPO}/releases/tags/${TAG}" \
                   --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | [.id, .name, .size] | @tsv' \
                 | head -n 1
@@ -923,7 +926,7 @@ jobs:
               --max-time 170 \
               --retry 2 \
               --retry-delay 5 \
-              -H "Authorization: Bearer ${PRIVATE_REPO_TOKEN}" \
+              -H "Authorization: Bearer ${RELEASE_GH_TOKEN}" \
               -H "Accept: application/octet-stream" \
               -o "unsigned/${ASSET_NAME}" \
               "https://api.github.com/repos/${REPO}/releases/assets/${ASSET_ID}"; then
@@ -998,10 +1001,10 @@ jobs:
       - name: Upload signed exe to release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
-          REPO="${{ env.PRIVATE_REPO }}"
+          REPO="${{ env.RELEASE_REPO }}"
           # Keep uploads bounded but allow the slow self-hosted runner link to finish.
           UPLOAD_TIMEOUT=45m
           for f in unsigned/*.exe; do
@@ -1031,10 +1034,10 @@ jobs:
       - name: Update latest.yml with signed exe hash
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
-          REPO="${{ env.PRIVATE_REPO }}"
+          REPO="${{ env.RELEASE_REPO }}"
           gh release download "$TAG" -R "$REPO" --dir yml-update --pattern "latest.yml" --clobber || true
           if [ ! -f yml-update/latest.yml ]; then
             echo "No latest.yml found, skipping"
@@ -1059,9 +1062,9 @@ jobs:
 
   # -- Upload to Cloudflare R2 + Notify --
   upload-r2:
-    # Ship macOS as long as mac builds succeed. Windows signing is optional and
-    # may time out/fail; in that case skip Windows artifacts and publish macOS-only.
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' }}
+    # Require every requested platform before replacing the production manifests.
+    # A macOS-only release must explicitly set skip_win_sign.
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' && (needs.prepare.outputs.skip_win_sign == 'true' || (needs.build-windows.result == 'success' && needs.sign-windows.result == 'success')) }}
     needs: [prepare, build-mac, build-windows, sign-windows]
     runs-on: ubuntu-latest
     name: Upload to R2
@@ -1081,10 +1084,10 @@ jobs:
 
       - name: Download release assets
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
-          REPO="${{ env.PRIVATE_REPO }}"
+          REPO="${{ env.RELEASE_REPO }}"
           mkdir -p assets
           gh release download "$TAG" -R "$REPO" --dir assets --clobber
           echo "=== Downloaded assets ==="
@@ -1143,7 +1146,7 @@ jobs:
 
       - name: Upload assets to Cloudflare R2
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
