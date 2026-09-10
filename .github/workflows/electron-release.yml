@@ -30,7 +30,7 @@ concurrency:
 env:
   TAG: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
   CHANNEL: ${{ github.event.client_payload.channel || github.event.inputs.channel || 'production' }}
-  PRIVATE_REPO: CodePhiliaX/ottermind
+  PRIVATE_REPO: OtterMind/ottermind
 
 jobs:
   # -- Extract version --
@@ -113,7 +113,7 @@ jobs:
         with:
           repository: ${{ env.PRIVATE_REPO }}
           ref: ${{ needs.prepare.outputs.tag }}
-          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          ssh-key: ${{ secrets.PRIVATE_REPO_DEPLOY_KEY }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -504,7 +504,7 @@ jobs:
         with:
           repository: ${{ env.PRIVATE_REPO }}
           ref: ${{ needs.prepare.outputs.tag }}
-          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          ssh-key: ${{ secrets.PRIVATE_REPO_DEPLOY_KEY }}
           persist-credentials: false
 
       - name: Setup Bun
