@@ -113,7 +113,7 @@ jobs:
         with:
           repository: ${{ env.PRIVATE_REPO }}
           ref: ${{ needs.prepare.outputs.tag }}
-          ssh-key: ${{ secrets.PRIVATE_REPO_DEPLOY_KEY }}
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -504,7 +504,7 @@ jobs:
         with:
           repository: ${{ env.PRIVATE_REPO }}
           ref: ${{ needs.prepare.outputs.tag }}
-          ssh-key: ${{ secrets.PRIVATE_REPO_DEPLOY_KEY }}
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
           persist-credentials: false
 
       - name: Setup Bun
