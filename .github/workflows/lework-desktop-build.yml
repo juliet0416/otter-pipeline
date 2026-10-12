@@ -1,4 +1,4 @@
-name: LeWork Desktop Build (artifacts only)
+name: LeWork Desktop Build
 run-name: LeWork v${{ inputs.version }} @ ${{ inputs.source_sha }}
 
 on:
@@ -16,8 +16,9 @@ on:
 permissions:
   contents: read
 
-# This workflow intentionally creates no GitHub Release and writes nothing to
-# Cloudflare R2 or the Ottermind desktop update feed.
+# This workflow never touches Ottermind's electron/releases/latest. The CDN
+# publication job uses a separate LeWork prefix only after every signed build
+# succeeds.
 concurrency:
   group: lework-desktop-${{ inputs.source_sha }}-${{ inputs.version }}
   cancel-in-progress: false
@@ -239,3 +240,13 @@ jobs:
           path: ${{ runner.temp }}/lework-unsigned-${{ github.run_id }}/lework-*-setup.exe
           if-no-files-found: error
           retention-days: 7
+
+  publish-cdn:
+    name: Publish LeWork CDN release
+    needs: [build-mac, sign-windows]
+    uses: ./.github/workflows/lework-cdn-publish.yml
+    with:
+      run_id: ${{ github.run_id }}
+      version: ${{ inputs.version }}
+      source_sha: ${{ inputs.source_sha }}
+    secrets: inherit

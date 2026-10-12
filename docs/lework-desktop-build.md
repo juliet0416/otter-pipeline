@@ -1,4 +1,4 @@
-# LeWork desktop validation build
+# LeWork desktop build and CDN release
 
 This is a separate, manually triggered workflow in `juliet0416/otter-pipeline`:
 `.github/workflows/lework-desktop-build.yml`. It does not call or edit the
@@ -22,18 +22,38 @@ gh workflow run lework-desktop-build.yml \
 
 The workflow builds and notarizes macOS arm64/x64, builds a Windows x64 NSIS
 installer, signs that installer on the existing hardware-token runner, and
-stores the resulting files as GitHub Actions artifacts for seven days.
+stores the resulting files as GitHub Actions artifacts for seven days. After
+all three signing jobs pass, the reusable `lework-cdn-publish.yml` workflow
+copies the signed files and fresh manifests to the isolated LeWork CDN prefix.
 
-## First-stage safety boundary
+## Distribution safety boundary
 
 - No GitHub Release is created.
-- Nothing is uploaded to Cloudflare R2 or any `latest` directory.
+- Only `electron/lework/releases/v<version>/` and
+  `electron/lework/releases/latest/` are written in the existing R2 bucket.
+  The Ottermind `electron/releases/latest/` prefix is never read, cleared, or
+  overwritten by these workflows.
+- Installers are uploaded before `latest-mac.yml` and `latest.yml`; manifests
+  are generated from the signed bytes, including the hardware-signed Windows
+  installer. Existing `latest/` objects are not recursively deleted.
+- The customer download page reads those manifests through its own small
+  same-origin endpoint (the shared CDN does not grant LeWork browser CORS),
+  then links directly to the CDN installer files.
 - The LeWork app uses its own bundle ID, `lework://` scheme, user data directory,
-  and update URL. Automatic updates are disabled for this validation stage.
+  and update URL. Automatic updates remain disabled in this demo build.
 - The Mac verification job rejects an app that registers `ottermind://` or
   points its update configuration at the Ottermind release feed.
 - The Ottermind production download feed is not a build output of this workflow.
 
-The current icon is provisional. Do not publish these artifacts on the customer
-download page until branding, Windows runtime validation, and a dedicated
-LeWork update feed have been completed.
+An earlier successful build can be published without rebuilding:
+
+```sh
+gh workflow run lework-cdn-publish.yml \
+  -R juliet0416/otter-pipeline \
+  -f run_id=<successful-lework-build-run-id> \
+  -f source_sha=<sha-used-by-that-build> \
+  -f version=<version-used-by-that-build>
+```
+
+The current icon is provisional. Windows runtime validation and a customer-owned
+CDN domain are still separate follow-up work before a final customer release.

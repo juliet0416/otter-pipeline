@@ -1,0 +1,134 @@
+name: LeWork CDN Publish
+run-name: Publish LeWork v${{ inputs.version }} from run ${{ inputs.run_id }}
+
+on:
+  workflow_call:
+    inputs:
+      run_id:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful LeWork desktop build run ID
+        required: true
+        type: string
+      version:
+        description: Version built by that run (major.minor.patch)
+        required: true
+        type: string
+      source_sha:
+        description: Full standalone source SHA built by that run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: lework-cdn-publish
+  cancel-in-progress: false
+
+env:
+  BUILD_RUN_ID: ${{ inputs.run_id }}
+  LEWORK_VERSION: ${{ inputs.version }}
+  LEWORK_SOURCE_SHA: ${{ inputs.source_sha }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    name: Publish signed LeWork installers to isolated CDN prefix
+    steps:
+      - name: Verify source run and version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$LEWORK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$LEWORK_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          run_path="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}" --jq '.path')"
+          run_title="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}" --jq '.display_title')"
+          run_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}" --jq '.conclusion')"
+          test "$run_path" = '.github/workflows/lework-desktop-build.yml'
+          test "$run_title" = "LeWork v${LEWORK_VERSION} @ ${LEWORK_SOURCE_SHA}"
+          if [ "$BUILD_RUN_ID" != "$GITHUB_RUN_ID" ]; then
+            test "$run_conclusion" = 'success'
+          fi
+          echo "Verified LeWork build run ${BUILD_RUN_ID} for v${LEWORK_VERSION}"
+
+      - name: Checkout publication scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download signed macOS arm64 files
+        uses: actions/download-artifact@v4
+        with:
+          name: lework-macos-arm64-${{ inputs.version }}
+          path: artifacts/macos-arm64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Download signed macOS x64 files
+        uses: actions/download-artifact@v4
+        with:
+          name: lework-macos-x64-${{ inputs.version }}
+          path: artifacts/macos-x64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Download hardware-signed Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: lework-windows-signed-${{ inputs.version }}
+          path: artifacts/windows-signed
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Generate manifests from signed bytes
+        run: node scripts/lework-create-publication.mjs artifacts published "${LEWORK_VERSION}"
+
+      - name: Install AWS CLI
+        shell: bash
+        run: |
+          curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o "$RUNNER_TEMP/awscliv2.zip"
+          unzip -q "$RUNNER_TEMP/awscliv2.zip" -d "$RUNNER_TEMP"
+          sudo "$RUNNER_TEMP/aws/install" --update
+
+      - name: Upload to isolated LeWork R2 prefix
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME || 'ottermind' }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT || 'https://ceca1f645523189fea5ec3a1cab2326e.r2.cloudflarestorage.com' }}
+          LEWORK_CDN_ORIGIN: https://cdn.ottermind.ai
+        run: bash scripts/lework-upload-r2.sh published
+
+      - name: Verify public CDN manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://cdn.ottermind.ai/electron/lework/releases/latest'
+          for name in latest-mac.yml latest.yml; do
+            for attempt in 1 2 3 4 5; do
+              if curl -fsS --max-time 20 "${base}/${name}" | grep -Fq "version: ${LEWORK_VERSION}"; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "CDN manifest ${name} did not publish v${LEWORK_VERSION}" >&2
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+          curl -fsSI --max-time 20 "${base}/lework-${LEWORK_VERSION}-arm64.dmg" > /dev/null
+          curl -fsSI --max-time 20 "${base}/lework-${LEWORK_VERSION}-x64.dmg" > /dev/null
+          curl -fsSI --max-time 20 "${base}/lework-${LEWORK_VERSION}-setup.exe" > /dev/null
