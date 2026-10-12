@@ -23,7 +23,7 @@ latest_prefix="${prefix}/latest"
 expected=(
   "LeWork-${version}-arm64-mac.zip"
   "lework-${version}-arm64.dmg"
-  "LeWork-${version}-x64-mac.zip"
+  "LeWork-${version}-mac.zip"
   "lework-${version}-x64.dmg"
   "lework-${version}-setup.exe"
 )

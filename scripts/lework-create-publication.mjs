@@ -35,7 +35,7 @@ export function createLeWorkPublication(root, output, version, releaseDate = new
   const expected = [
     ['macos-arm64', `LeWork-${version}-arm64-mac.zip`],
     ['macos-arm64', `lework-${version}-arm64.dmg`],
-    ['macos-x64', `LeWork-${version}-x64-mac.zip`],
+    ['macos-x64', `LeWork-${version}-mac.zip`],
     ['macos-x64', `lework-${version}-x64.dmg`],
     ['windows-signed', `lework-${version}-setup.exe`],
   ]

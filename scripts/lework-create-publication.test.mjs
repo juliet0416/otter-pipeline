@@ -11,7 +11,7 @@ test('publication uses only expected LeWork files and signed Windows bytes', () 
     const inputs = [
       ['macos-arm64', 'LeWork-0.1.4-arm64-mac.zip'],
       ['macos-arm64', 'lework-0.1.4-arm64.dmg'],
-      ['macos-x64', 'LeWork-0.1.4-x64-mac.zip'],
+      ['macos-x64', 'LeWork-0.1.4-mac.zip'],
       ['macos-x64', 'lework-0.1.4-x64.dmg'],
       ['windows-signed', 'lework-0.1.4-setup.exe'],
     ]
