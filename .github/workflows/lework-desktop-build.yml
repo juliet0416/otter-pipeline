@@ -126,6 +126,12 @@ jobs:
           app="$(find apps/desktop/dist -maxdepth 2 -name 'LeWork.app' -type d | head -n 1)"
           test -n "$app"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" = 'com.insmtx.lework'
+          schemes="$(plutil -extract CFBundleURLTypes json -o - "$app/Contents/Info.plist")"
+          printf '%s' "$schemes" | grep -Fq '"lework"'
+          if printf '%s' "$schemes" | grep -Fq '"ottermind"'; then
+            echo 'LeWork app must not register the Ottermind protocol' >&2
+            exit 1
+          fi
           codesign --verify --strict --verbose=2 "$app"
           codesign -dv --verbose=4 "$app" > "$RUNNER_TEMP/codesign.txt" 2>&1
           grep -q 'Authority=Developer ID Application' "$RUNNER_TEMP/codesign.txt"
