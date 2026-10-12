@@ -119,7 +119,7 @@ jobs:
           base='https://cdn.ottermind.ai/electron/lework/releases/latest'
           for name in latest-mac.yml latest.yml; do
             for attempt in 1 2 3 4 5; do
-              if curl -fsS --max-time 20 "${base}/${name}" | grep -Fq "version: ${LEWORK_VERSION}"; then
+              if curl -fsS --max-time 20 "${base}/${name}?verify=${GITHUB_RUN_ID}-${attempt}" | grep -Fq "version: ${LEWORK_VERSION}"; then
                 break
               fi
               if [ "$attempt" -eq 5 ]; then
