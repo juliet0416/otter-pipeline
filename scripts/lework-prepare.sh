@@ -20,7 +20,7 @@ test -f apps/desktop/.env.lework
 test -f apps/studio/.env.lework
 grep -Fxq 'VITE_APP_CHANNEL=lework' apps/desktop/.env.lework
 grep -Fxq 'VITE_APP_ID=com.insmtx.lework' apps/desktop/.env.lework
-grep -Fxq 'VITE_APP_URL=https://lework.insmtx.com' apps/desktop/.env.lework
+grep -Fxq 'VITE_APP_URL=https://studio.lework.insmtx.com' apps/desktop/.env.lework
 grep -Fxq 'VITE_API_URL=https://api.lework.insmtx.com' apps/desktop/.env.lework
 grep -Fxq 'VITE_DESKTOP_SCHEME=lework' apps/studio/.env.lework
 
