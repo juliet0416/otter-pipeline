@@ -219,7 +219,6 @@ jobs:
     needs: build-windows
     runs-on: ubuntu-latest
     outputs:
-      url: ${{ steps.stage.outputs.url }}
       sha256: ${{ steps.stage.outputs.sha256 }}
     steps:
       - name: Download unsigned LeWork installer
@@ -251,7 +250,6 @@ jobs:
             --endpoint-url "$R2_ENDPOINT" \
             --content-type application/x-msdownload \
             --cache-control 'no-cache, must-revalidate'
-          echo "url=https://cdn.ottermind.ai/${key}" >> "$GITHUB_OUTPUT"
           echo "sha256=$(sha256sum "$exe" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
   sign-windows:
@@ -263,15 +261,15 @@ jobs:
       - name: Download and verify unsigned LeWork installer from R2
         shell: bash
         env:
-          STAGED_URL: ${{ needs.stage-windows-unsigned-r2.outputs.url }}
           EXPECTED_SHA256: ${{ needs.stage-windows-unsigned-r2.outputs.sha256 }}
         run: |
           set -euo pipefail
           dest="$RUNNER_TEMP/lework-unsigned-${GITHUB_RUN_ID}"
           mkdir -p "$dest"
           exe="$dest/lework-${LEWORK_VERSION}-setup.exe"
+          staged_url="https://cdn.ottermind.ai/electron/lework/signing-staging/${GITHUB_RUN_ID}/lework-${LEWORK_VERSION}-setup.exe"
           curl -fL --connect-timeout 20 --max-time 1200 \
-            --retry 5 --retry-delay 10 -o "$exe" "$STAGED_URL"
+            --retry 5 --retry-delay 10 -o "$exe" "$staged_url"
           printf '%s  %s\n' "$EXPECTED_SHA256" "$exe" | sha256sum -c -
       - name: Sign with existing hardware token
         shell: bash
