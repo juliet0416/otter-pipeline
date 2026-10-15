@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # This workflow never touches Ottermind's electron/releases/latest. The CDN
 # publication job uses a separate LeWork prefix only after every signed build
