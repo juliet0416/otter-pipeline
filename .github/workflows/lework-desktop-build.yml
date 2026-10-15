@@ -140,7 +140,7 @@ jobs:
           grep -q 'flags=.*runtime' "$RUNNER_TEMP/codesign.txt"
           update_config="$app/Contents/Resources/app-update.yml"
           test -f "$update_config"
-          grep -Fq 'https://lework.insmtx.com/desktop/releases/latest' "$update_config"
+          grep -Fq 'https://cdn.ottermind.ai/electron/lework/releases/latest' "$update_config"
           if grep -Fq 'cdn.ottermind.ai/electron/releases/latest' "$update_config"; then
             echo 'Ottermind update feed leaked into LeWork app' >&2
             exit 1
@@ -202,6 +202,7 @@ jobs:
           set -euo pipefail
           test -f "apps/desktop/dist/lework-${LEWORK_VERSION}-setup.exe"
           test -f apps/desktop/dist/latest.yml
+          grep -Fq 'https://cdn.ottermind.ai/electron/lework/releases/latest' apps/desktop/dist/win-unpacked/resources/app-update.yml
           if grep -Fq 'cdn.ottermind.ai/electron/releases/latest' apps/desktop/dist/latest.yml; then
             echo 'Ottermind update feed leaked into LeWork installer metadata' >&2
             exit 1

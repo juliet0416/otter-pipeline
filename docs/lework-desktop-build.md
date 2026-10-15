@@ -40,7 +40,9 @@ copies the signed files and fresh manifests to the isolated LeWork CDN prefix.
   same-origin endpoint (the shared CDN does not grant LeWork browser CORS),
   then links directly to the CDN installer files.
 - The LeWork app uses its own bundle ID, `lework://` scheme, user data directory,
-  and update URL. Automatic updates remain disabled in this demo build.
+  and CDN update feed. Automatic updates are enabled starting with the first
+  release built after this policy change; earlier builds that disabled checks
+  still require a manual reinstall from the customer download page.
 - The Mac verification job rejects an app that registers `ottermind://` or
   points its update configuration at the Ottermind release feed.
 - The Ottermind production download feed is not a build output of this workflow.
