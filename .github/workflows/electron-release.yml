@@ -157,7 +157,8 @@ jobs:
           electron_mirror=https://npmmirror.com/mirrors/electron/
           electron_builder_binaries_mirror=https://npmmirror.com/mirrors/electron-builder-binaries/
           EOF
-          rm -f bun.lock bun.lockb
+          # Keep the tagged lockfile so releases use tested transitive dependency versions.
+          rm -f bun.lockb
           bun pm cache rm || true
           install_ok=false
           for attempt in 1 2 3; do
@@ -548,7 +549,8 @@ jobs:
           electron_mirror=https://npmmirror.com/mirrors/electron/
           electron_builder_binaries_mirror=https://npmmirror.com/mirrors/electron-builder-binaries/
           EOF
-          rm -f bun.lock bun.lockb
+          # Keep the tagged lockfile so releases use tested transitive dependency versions.
+          rm -f bun.lockb
           bun pm cache rm || true
           install_ok=false
           for attempt in 1 2 3; do
