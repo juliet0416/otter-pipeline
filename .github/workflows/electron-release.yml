@@ -618,6 +618,24 @@ jobs:
           echo "Building workspace packages required by the desktop release"
           (cd packages/types && bun run build)
 
+      - name: Normalize Windows ffmpeg license filename
+        shell: bash
+        run: |
+          if [ ! -f apps/agent/scripts/video-edit/build-renderer.ts ]; then
+            exit 0
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const r = require('module').createRequire(process.cwd() + '/apps/agent/package.json');
+          // ffmpeg-static installs ffmpeg.exe.LICENSE on Windows; current desktop
+          // tags expect ffmpeg.LICENSE when copying the binary's license.
+          const license = r('ffmpeg-static') + '.LICENSE';
+          const destination = path.join(path.dirname(r.resolve('ffmpeg-static/package.json')), 'ffmpeg.LICENSE');
+          fs.copyFileSync(license, destination);
+          console.log('Prepared ffmpeg binary license for desktop packaging');
+          NODE
+
       - name: Create desktop .env.production
         shell: bash
         run: |
