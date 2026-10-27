@@ -399,7 +399,10 @@ jobs:
           OTTERMIND_BUILTIN_API_URL: ${{ secrets.OTTERMIND_BUILTIN_API_URL }}
           OTTERMIND_BUILTIN_AUTH_TOKEN: ${{ secrets.OTTERMIND_BUILTIN_AUTH_TOKEN }}
         run: |
-          bun run video-edit:build-renderer
+          # Older release tags do not contain the video renderer.
+          if [ -f scripts/video-edit/build-renderer.ts ]; then
+            bun run video-edit:build-renderer
+          fi
           mkdir -p build
           bun build --compile --target=${{ matrix.bun_target }} src/index.ts --outfile build/${{ matrix.sidecar_name }}
 
@@ -727,7 +730,10 @@ jobs:
           OTTERMIND_BUILTIN_API_URL: ${{ secrets.OTTERMIND_BUILTIN_API_URL }}
           OTTERMIND_BUILTIN_AUTH_TOKEN: ${{ secrets.OTTERMIND_BUILTIN_AUTH_TOKEN }}
         run: |
-          bun run video-edit:build-renderer
+          # Older release tags do not contain the video renderer.
+          if [ -f scripts/video-edit/build-renderer.ts ]; then
+            bun run video-edit:build-renderer
+          fi
           mkdir -p build
           bun build --compile --target=bun-windows-x64 src/index.ts --outfile build/ottermind-server-win32-x64.exe
 
