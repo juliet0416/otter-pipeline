@@ -257,6 +257,22 @@ jobs:
             sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
           fi
 
+      - name: Prepare Intel media binaries
+        if: matrix.arch == 'x64'
+        run: |
+          # Older tags do not bundle video export dependencies.
+          if [ ! -f apps/agent/scripts/video-edit/build-renderer.ts ]; then
+            exit 0
+          fi
+          FFMPEG_INSTALL=$(node -e "const r = require('module').createRequire(process.cwd() + '/apps/agent/package.json'); console.log(r.resolve('ffmpeg-static/install.js'))")
+          FFPROBE_X64=$(node -e "const r = require('module').createRequire(process.cwd() + '/apps/agent/package.json'); console.log(require('path').join(require('path').dirname(r.resolve('ffprobe-static/package.json')), 'bin/darwin/x64/ffprobe'))")
+          FFMPEG_X64="$RUNNER_TEMP/ffmpeg-darwin-x64"
+          FFMPEG_BIN="$FFMPEG_X64" npm_config_platform=darwin npm_config_arch=x64 node "$FFMPEG_INSTALL"
+          file "$FFMPEG_X64" | grep -q x86_64
+          file "$FFPROBE_X64" | grep -q x86_64
+          echo "VIDEO_EXPORT_FFMPEG_BINARY=$FFMPEG_X64" >> "$GITHUB_ENV"
+          echo "VIDEO_EXPORT_FFPROBE_BINARY=$FFPROBE_X64" >> "$GITHUB_ENV"
+
       - name: Create desktop .env.production
         run: |
           CHANNEL="${{ env.CHANNEL }}"
