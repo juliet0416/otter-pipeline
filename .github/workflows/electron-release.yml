@@ -1306,7 +1306,7 @@ jobs:
           echo "FEISHU_CONTENT=${CONTENT}" >> $GITHUB_ENV
 
       - name: Notify Feishu
-        if: always()
+        if: ${{ false }}
         continue-on-error: true
         uses: foxundermoon/feishu-action@v2
         with:
