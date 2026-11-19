@@ -1336,13 +1336,18 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
         shell: pwsh
         run: |
-          gh release download v1.0.98 -R OtterMind/ottermind --dir assets --pattern 'ottermind-1.0.98-setup.exe'
+          New-Item -ItemType Directory -Force assets | Out-Null
+          curl.exe -fL --retry 3 --max-time 600 -o assets/ottermind-1.0.98-setup.exe https://cdn.ottermind.ai/electron/signing-staging/v1.0.98/ottermind-1.0.98-signed.exe
           if ($LASTEXITCODE -ne 0) { throw 'Failed to download signed installer' }
+          $hash = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash -Algorithm SHA512 'assets/ottermind-1.0.98-setup.exe').Hash))
+          if ($hash -ne '4FRBQTRwfEdJxAjZt1VsmK1yspqfO+euSkd6eoWdgYm+GSc5SP0r5IGLQYJXDopyc2lqdeMnKEgNHNqBRc0ONg==') { throw 'Signed installer checksum mismatch' }
           $signature = Get-AuthenticodeSignature 'assets/ottermind-1.0.98-setup.exe'
           if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) {
             throw "Invalid or untimestamped Windows signature: $($signature.Status) $($signature.StatusMessage)"
           }
           Write-Output 'Windows Authenticode signature and timestamp verified'
+          gh release upload v1.0.98 assets/ottermind-1.0.98-setup.exe -R OtterMind/ottermind --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to upload signed installer' }
 
   publish-98:
     if: ${{ github.event.inputs.tag == 'v1.0.98' && github.event.inputs.channel == 'publish' }}
