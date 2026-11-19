@@ -64,6 +64,7 @@ jobs:
 
   # -- Create GitHub Release on private repo --
   create-release:
+    if: ${{ github.event.inputs.channel != 'publish' }}
     needs: prepare
     runs-on: ubuntu-latest
     name: Create Release
@@ -1317,3 +1318,80 @@ jobs:
               zh_cn:
                 title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] ${{ job.status == 'success' && '✅' || '❌' }}"
                 content: ${{ env.FEISHU_CONTENT }}
+
+  publish-98:
+    if: ${{ github.event.inputs.tag == 'v1.0.98' && github.event.inputs.channel == 'publish' }}
+    runs-on: ubuntu-latest
+    name: Verify and publish v1.0.98
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download v1.0.98 -R OtterMind/ottermind --dir assets
+      - name: Verify checksums and merge Mac manifests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, re
+
+          assets = Path('assets')
+          manifests = ['latest-mac-arm64.yml', 'latest-mac-x64.yml', 'latest.yml']
+          for name in manifests:
+              text = (assets / name).read_text()
+              assert re.search(r'^version: 1\.0\.98\s*$', text, re.M), name
+              entries = re.findall(r'^\s*- url: ([^\n]+)\n\s+sha512: ([^\n]+)\n\s+size: (\d+)', text, re.M)
+              assert len(entries) >= (1 if name == 'latest.yml' else 2), name
+              for filename, expected, size in entries:
+                  filename = filename.strip().strip('"\'')
+                  assert Path(filename).name == filename
+                  path = assets / filename
+                  assert path.stat().st_size == int(size), filename
+                  digest = hashlib.sha512()
+                  with path.open('rb') as f:
+                      for block in iter(lambda: f.read(1024 * 1024), b''):
+                          digest.update(block)
+                  assert base64.b64encode(digest.digest()).decode() == expected.strip(), filename
+                  print('Verified', filename)
+
+          arm = (assets / manifests[0]).read_text().splitlines()
+          intel = (assets / manifests[1]).read_text().splitlines()
+          def files(lines):
+              start = lines.index('files:') + 1
+              end = next((i for i in range(start, len(lines)) if lines[i] and not lines[i][0].isspace()), len(lines))
+              return start, end
+          _, intel_end = files(intel)
+          intel_start, _ = files(intel)
+          _, arm_end = files(arm)
+          arm[arm_end:arm_end] = intel[intel_start:intel_end]
+          (assets / 'latest-mac.yml').write_text('\n'.join(arm) + '\n')
+          PY
+      - name: Publish verified assets before update manifests
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT || 'https://ceca1f645523189fea5ec3a1cab2326e.r2.cloudflarestorage.com' }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME || 'ottermind' }}
+        run: |
+          set -euo pipefail
+          aws configure set default.s3.multipart_threshold 5GB
+          for f in assets/*.exe assets/*.dmg assets/*.zip; do
+            test -f "$f"
+            name=$(basename "$f")
+            for prefix in electron/releases/v1.0.98 electron/releases/latest; do
+              aws s3 cp "$f" "s3://${R2_BUCKET_NAME}/${prefix}/${name}" --endpoint-url "$R2_ENDPOINT" --content-type application/octet-stream --cache-control 'no-cache, must-revalidate'
+            done
+            curl -fsSI --retry 3 "https://cdn.ottermind.ai/electron/releases/latest/${name}?run=${GITHUB_RUN_ID}" >/dev/null
+          done
+          for f in assets/latest.yml assets/latest-mac.yml; do
+            for prefix in electron/releases/v1.0.98 electron/releases/latest; do
+              aws s3 cp "$f" "s3://${R2_BUCKET_NAME}/${prefix}/$(basename "$f")" --endpoint-url "$R2_ENDPOINT" --content-type text/yaml --cache-control 'no-cache, must-revalidate'
+            done
+          done
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        run: gh release edit v1.0.98 -R OtterMind/ottermind --draft=false --latest
