@@ -1319,8 +1319,27 @@ jobs:
                 title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] ${{ job.status == 'success' && '✅' || '❌' }}"
                 content: ${{ env.FEISHU_CONTENT }}
 
+  verify-windows-98:
+    if: ${{ github.event.inputs.tag == 'v1.0.98' && github.event.inputs.channel == 'publish' }}
+    runs-on: windows-latest
+    name: Verify Windows signature
+    steps:
+      - name: Download signed installer
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        shell: pwsh
+        run: |
+          gh release download v1.0.98 -R OtterMind/ottermind --dir assets --pattern 'ottermind-1.0.98-setup.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to download signed installer' }
+          $signature = Get-AuthenticodeSignature 'assets/ottermind-1.0.98-setup.exe'
+          if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) {
+            throw "Invalid or untimestamped Windows signature: $($signature.Status) $($signature.StatusMessage)"
+          }
+          Write-Output 'Windows Authenticode signature and timestamp verified'
+
   publish-98:
     if: ${{ github.event.inputs.tag == 'v1.0.98' && github.event.inputs.channel == 'publish' }}
+    needs: verify-windows-98
     runs-on: ubuntu-latest
     name: Verify and publish v1.0.98
     steps:
