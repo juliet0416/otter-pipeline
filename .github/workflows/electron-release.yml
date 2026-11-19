@@ -79,7 +79,7 @@ jobs:
           if [ "$IS_BETA" = "true" ]; then
             gh release create "$TAG" -R "${{ env.PRIVATE_REPO }}" --title "$TITLE" --notes "" --draft --prerelease || echo "Release already exists"
           else
-            gh release create "$TAG" -R "${{ env.PRIVATE_REPO }}" --title "$TITLE" --notes "" --latest || echo "Release already exists"
+            gh release create "$TAG" -R "${{ env.PRIVATE_REPO }}" --title "$TITLE" --notes "" --draft || echo "Release already exists"
           fi
 
   # -- macOS builds --
@@ -858,6 +858,7 @@ jobs:
           KEY="electron/signing-staging/${TAG}/${EXE_NAME}"
           DEST="s3://${R2_BUCKET}/${KEY}"
           echo "Uploading unsigned exe to ${DEST}"
+          aws configure set default.s3.multipart_threshold 5GB
           aws s3 cp "$EXE_PATH" "$DEST" \
             --endpoint-url "$R2_ENDPOINT" \
             --content-type "application/x-msdownload" \
@@ -906,7 +907,7 @@ jobs:
 
           echo "Trying R2 staged unsigned exe first"
           if ASSET_NAME="$(timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
-            gh api "repos/${REPO}/releases/tags/${TAG}" \
+            gh release view "$TAG" -R "$REPO" --json assets \
               --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | .name' \
             | head -n 1)" && [ -n "$ASSET_NAME" ]; then
             for attempt in 1 2 3; do
@@ -946,8 +947,8 @@ jobs:
             set +e
             ASSET_INFO="$(
               timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
-                gh api "repos/${REPO}/releases/tags/${TAG}" \
-                  --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | [.id, .name, .size] | @tsv' \
+                gh release view "$TAG" -R "$REPO" --json assets \
+                  --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | [.apiUrl, .name, .size] | @tsv' \
                 | head -n 1
             )"
             rc=$?
@@ -958,7 +959,7 @@ jobs:
               continue
             fi
 
-            ASSET_ID="$(printf '%s' "$ASSET_INFO" | cut -f1)"
+            ASSET_URL="$(printf '%s' "$ASSET_INFO" | cut -f1)"
             ASSET_NAME="$(printf '%s' "$ASSET_INFO" | cut -f2)"
             ASSET_SIZE="$(printf '%s' "$ASSET_INFO" | cut -f3)"
             echo "Downloading release asset: ${ASSET_NAME} (${ASSET_SIZE} bytes), timeout=${DOWNLOAD_TIMEOUT}"
@@ -970,7 +971,7 @@ jobs:
               -H "Authorization: Bearer ${PRIVATE_REPO_TOKEN}" \
               -H "Accept: application/octet-stream" \
               -o "unsigned/${ASSET_NAME}" \
-              "https://api.github.com/repos/${REPO}/releases/assets/${ASSET_ID}"; then
+              "${ASSET_URL}"; then
               if ls unsigned/*.exe >/dev/null 2>&1; then
                 ls -lh unsigned
                 exit 0
@@ -1103,9 +1104,8 @@ jobs:
 
   # -- Upload to Cloudflare R2 + Notify --
   upload-r2:
-    # Ship macOS as long as mac builds succeed. Windows signing is optional and
-    # may time out/fail; in that case skip Windows artifacts and publish macOS-only.
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' }}
+    # Publish verified artifacts manually after all platforms are signed.
+    if: ${{ false }}
     needs: [prepare, build-mac, build-windows, sign-windows]
     runs-on: ubuntu-latest
     name: Upload to R2
