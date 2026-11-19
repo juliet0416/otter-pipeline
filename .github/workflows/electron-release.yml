@@ -64,7 +64,7 @@ jobs:
 
   # -- Create GitHub Release on private repo --
   create-release:
-    if: ${{ github.event.inputs.channel != 'publish' }}
+    if: ${{ github.event.inputs.channel != 'publish' && github.event.inputs.channel != 'probe' }}
     needs: prepare
     runs-on: ubuntu-latest
     name: Create Release
@@ -1318,6 +1318,13 @@ jobs:
               zh_cn:
                 title: "Ottermind ${{ needs.prepare.outputs.tag }} [${{ env.CHANNEL }}] ${{ job.status == 'success' && '✅' || '❌' }}"
                 content: ${{ env.FEISHU_CONTENT }}
+
+  probe-signed-98:
+    if: ${{ github.event.inputs.tag == 'v1.0.98' && github.event.inputs.channel == 'probe' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check signed installer transfer
+        run: curl --noproxy '*' -fsSI --connect-timeout 10 --max-time 15 http://43.110.148.129:31998/ottermind-1.0.98-setup.exe
 
   verify-windows-98:
     if: ${{ github.event.inputs.tag == 'v1.0.98' && github.event.inputs.channel == 'publish' }}
