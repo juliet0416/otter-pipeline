@@ -1378,6 +1378,7 @@ jobs:
         run: |
           set -euo pipefail
           aws configure set default.s3.multipart_threshold 5GB
+          aws s3 rm "s3://${R2_BUCKET_NAME}/electron/signing-staging/v1.0.98/" --recursive --endpoint-url "$R2_ENDPOINT"
           for f in assets/*.exe assets/*.dmg assets/*.zip; do
             test -f "$f"
             name=$(basename "$f")
