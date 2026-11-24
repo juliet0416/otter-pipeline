@@ -41,6 +41,7 @@ jobs:
       version: ${{ steps.version.outputs.VERSION }}
       tag: ${{ steps.version.outputs.TAG }}
       skip_win_sign: ${{ steps.flags.outputs.SKIP_WIN_SIGN }}
+      sign_and_publish_only: ${{ steps.flags.outputs.SIGN_AND_PUBLISH_ONLY }}
     steps:
       - name: Extract version
         id: version
@@ -61,9 +62,15 @@ jobs:
           else
             echo "SKIP_WIN_SIGN=false" >> $GITHUB_OUTPUT
           fi
+          if [ "${{ github.ref_name }}" = "fix/win-sign-download-resume" ]; then
+            echo "SIGN_AND_PUBLISH_ONLY=true" >> $GITHUB_OUTPUT
+          else
+            echo "SIGN_AND_PUBLISH_ONLY=false" >> $GITHUB_OUTPUT
+          fi
 
   # -- Create GitHub Release on private repo --
   create-release:
+    if: ${{ needs.prepare.outputs.sign_and_publish_only != 'true' }}
     needs: prepare
     runs-on: ubuntu-latest
     name: Create Release
@@ -84,6 +91,7 @@ jobs:
 
   # -- macOS builds --
   build-mac:
+    if: ${{ needs.prepare.outputs.sign_and_publish_only != 'true' }}
     needs: [prepare, create-release]
     strategy:
       fail-fast: false
@@ -515,6 +523,7 @@ jobs:
 
   # -- Windows build --
   build-windows:
+    if: ${{ needs.prepare.outputs.sign_and_publish_only != 'true' }}
     needs: [prepare, create-release]
     runs-on: windows-latest
     name: Build Windows x64
@@ -813,7 +822,7 @@ jobs:
   # while GitHub-hosted Windows -> R2 is fast and uses secrets already required
   # by the final upload job.
   stage-windows-unsigned-r2:
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' }}
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' && needs.prepare.outputs.sign_and_publish_only != 'true' }}
     needs: [prepare, build-windows]
     runs-on: ubuntu-latest
     name: Stage unsigned Windows exe to R2
@@ -874,7 +883,7 @@ jobs:
     # Skipped for beta tags, or when skip_win_sign is set (signer down) — in
     # which case upload-r2 sees sign result != 'success' and drops the Windows
     # assets, shipping macOS-only.
-    if: ${{ always() && !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' && needs.build-windows.result == 'success' }}
+    if: ${{ always() && !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && needs.prepare.outputs.skip_win_sign != 'true' && (needs.prepare.outputs.sign_and_publish_only == 'true' || needs.build-windows.result == 'success') }}
     needs: [prepare, build-windows, stage-windows-unsigned-r2]
     runs-on: self-hosted
     name: Sign Windows exe
@@ -900,49 +909,12 @@ jobs:
           TAG="${{ needs.prepare.outputs.tag }}"
           REPO="${{ env.PRIVATE_REPO }}"
           mkdir -p unsigned
-          ARTIFACT_NAME="unsigned-windows-exe-${TAG}"
-          DOWNLOAD_TIMEOUT=180s
+          DOWNLOAD_TIMEOUT=900s
+          CURL_MAX_TIME=880
           STAGED_BASE="https://cdn.ottermind.ai/electron/signing-staging/${TAG}"
 
-          echo "Trying R2 staged unsigned exe first"
-          if ASSET_NAME="$(timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
-            gh api "repos/${REPO}/releases/tags/${TAG}" \
-              --jq '.assets[] | select(.name | endswith(".exe")) | select(.state == "uploaded") | .name' \
-            | head -n 1)" && [ -n "$ASSET_NAME" ]; then
-            for attempt in 1 2 3; do
-              rm -f unsigned/*.exe
-              STAGED_URL="${STAGED_BASE}/${ASSET_NAME}"
-              echo "Downloading staged unsigned exe from R2 (attempt ${attempt}/3): ${STAGED_URL}"
-              if timeout --kill-after=10s "$DOWNLOAD_TIMEOUT" curl -fL \
-                --connect-timeout 20 \
-                --max-time 170 \
-                --retry 2 \
-                --retry-delay 5 \
-                -o "unsigned/${ASSET_NAME}" \
-                "${STAGED_URL}"; then
-                if ls unsigned/*.exe >/dev/null 2>&1; then
-                  ls -lh unsigned
-                  exit 0
-                fi
-                echo "R2 staged download succeeded but no exe was found"
-              else
-                rc=$?
-                if [ $rc -eq 124 ]; then
-                  echo "R2 staged download timed out after ${DOWNLOAD_TIMEOUT} (attempt ${attempt})"
-                else
-                  echo "R2 staged download failed with exit ${rc} (attempt ${attempt})"
-                fi
-              fi
-              sleep $((attempt * 10))
-            done
-          else
-            echo "Could not resolve release exe name for R2 staged download; falling back"
-          fi
-
-          echo "Trying GitHub Release asset first"
+          ASSET_INFO=""
           for attempt in 1 2 3; do
-            rm -f unsigned/*.exe
-            echo "Resolving Windows exe release asset (attempt ${attempt}/3)"
             set +e
             ASSET_INFO="$(
               timeout --kill-after=10s 30s env GH_TOKEN="$PRIVATE_REPO_TOKEN" \
@@ -952,62 +924,86 @@ jobs:
             )"
             rc=$?
             set -e
-            if [ $rc -ne 0 ] || [ -z "$ASSET_INFO" ]; then
-              echo "Release exe asset not available yet (exit=${rc}, attempt=${attempt})"
-              sleep $((attempt * 10))
-              continue
+            if [ $rc -eq 0 ] && [ -n "$ASSET_INFO" ]; then
+              break
             fi
+            echo "Could not resolve release exe metadata yet (exit=${rc}, attempt=${attempt}/3)"
+            sleep $((attempt * 5))
+          done
 
-            ASSET_ID="$(printf '%s' "$ASSET_INFO" | cut -f1)"
-            ASSET_NAME="$(printf '%s' "$ASSET_INFO" | cut -f2)"
-            ASSET_SIZE="$(printf '%s' "$ASSET_INFO" | cut -f3)"
-            echo "Downloading release asset: ${ASSET_NAME} (${ASSET_SIZE} bytes), timeout=${DOWNLOAD_TIMEOUT}"
-            if timeout --kill-after=10s "$DOWNLOAD_TIMEOUT" curl -fL \
+          if [ -z "$ASSET_INFO" ]; then
+            echo "::error::Failed to resolve Windows exe asset metadata for ${TAG}"
+            exit 1
+          fi
+
+          ASSET_ID="$(printf '%s' "$ASSET_INFO" | cut -f1)"
+          ASSET_NAME="$(printf '%s' "$ASSET_INFO" | cut -f2)"
+          ASSET_SIZE="$(printf '%s' "$ASSET_INFO" | cut -f3)"
+          DEST="unsigned/${ASSET_NAME}"
+          STAGED_URL="${STAGED_BASE}/${ASSET_NAME}"
+          GH_ASSET_URL="https://api.github.com/repos/${REPO}/releases/assets/${ASSET_ID}"
+          echo "Target exe: ${ASSET_NAME} (${ASSET_SIZE} bytes)"
+
+          check_complete() {
+            if [ -f "$DEST" ]; then
+              local cur
+              cur=$(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST" 2>/dev/null || echo 0)
+              echo "Current downloaded size: ${cur} / ${ASSET_SIZE} bytes"
+              if [ "$cur" -eq "$ASSET_SIZE" ]; then
+                ls -lh "$DEST"
+                return 0
+              fi
+              if [ "$cur" -gt "$ASSET_SIZE" ]; then
+                echo "Oversized partial file (${cur} > ${ASSET_SIZE}), resetting"
+                rm -f "$DEST"
+              fi
+            fi
+            return 1
+          }
+
+          echo "Trying resumable download from GitHub Release asset (up to 6 attempts, ${DOWNLOAD_TIMEOUT} each)"
+          for attempt in 1 2 3 4 5 6; do
+            echo "GitHub Release download attempt ${attempt}/6 (resuming with -C -)"
+            set +e
+            timeout --kill-after=10s "$DOWNLOAD_TIMEOUT" curl -fL -C - \
               --connect-timeout 20 \
-              --max-time 170 \
-              --retry 2 \
-              --retry-delay 5 \
+              --max-time "$CURL_MAX_TIME" \
+              --speed-limit 10240 \
+              --speed-time 60 \
               -H "Authorization: Bearer ${PRIVATE_REPO_TOKEN}" \
               -H "Accept: application/octet-stream" \
-              -o "unsigned/${ASSET_NAME}" \
-              "https://api.github.com/repos/${REPO}/releases/assets/${ASSET_ID}"; then
-              if ls unsigned/*.exe >/dev/null 2>&1; then
-                ls -lh unsigned
-                exit 0
-              fi
-              echo "Release download succeeded but no exe was found"
-              rc=1
-            else
-              rc=$?
+              -o "$DEST" \
+              "$GH_ASSET_URL"
+            rc=$?
+            set -e
+            if check_complete; then
+              exit 0
             fi
-            echo "Release download failed with exit ${rc} (attempt ${attempt}/3)"
-            sleep $((attempt * 10))
+            echo "GitHub Release attempt ${attempt}/6 incomplete (exit=${rc}); keeping partial bytes for resume"
+            sleep 5
           done
 
-          echo "Release download failed; falling back to Actions artifact: ${ARTIFACT_NAME}"
-          for attempt in 1 2 3; do
-            rm -f unsigned/*.exe
-            echo "Downloading Actions artifact (attempt ${attempt}/3, timeout=${DOWNLOAD_TIMEOUT})"
-            if GH_TOKEN="$PIPELINE_GH_TOKEN" timeout "$DOWNLOAD_TIMEOUT" gh run download "${{ github.run_id }}" \
-              -R "${{ github.repository }}" \
-              --name "${ARTIFACT_NAME}" \
-              --dir unsigned; then
-              if ls unsigned/*.exe >/dev/null 2>&1; then
-                ls -lh unsigned
-                exit 0
-              fi
-              echo "Artifact download succeeded but no exe was found"
-            else
-              rc=$?
-              if [ $rc -eq 124 ]; then
-                echo "Artifact download timed out after ${DOWNLOAD_TIMEOUT} (attempt ${attempt})"
-              else
-                echo "Artifact download failed with exit ${rc} (attempt ${attempt})"
-              fi
+          echo "Falling back to resumable download from R2 staged exe: ${STAGED_URL}"
+          for attempt in 1 2 3 4 5 6; do
+            echo "R2 staged download attempt ${attempt}/6 (resuming with -C -)"
+            set +e
+            timeout --kill-after=10s "$DOWNLOAD_TIMEOUT" curl -fL -C - \
+              --connect-timeout 20 \
+              --max-time "$CURL_MAX_TIME" \
+              --speed-limit 10240 \
+              --speed-time 60 \
+              -o "$DEST" \
+              "$STAGED_URL"
+            rc=$?
+            set -e
+            if check_complete; then
+              exit 0
             fi
-            sleep $((attempt * 10))
+            echo "R2 staged attempt ${attempt}/6 incomplete (exit=${rc}); keeping partial bytes for resume"
+            sleep 5
           done
-          echo "::error::Failed to download Windows exe"
+
+          echo "::error::Failed to download complete Windows exe (${ASSET_NAME}, expected ${ASSET_SIZE} bytes)"
           exit 1
 
       - name: Preflight signer host
@@ -1105,7 +1101,7 @@ jobs:
   upload-r2:
     # Ship macOS as long as mac builds succeed. Windows signing is optional and
     # may time out/fail; in that case skip Windows artifacts and publish macOS-only.
-    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && needs.build-mac.result == 'success' }}
+    if: ${{ !contains(github.event.client_payload.tag || github.event.inputs.tag, 'beta') && always() && ((needs.prepare.outputs.sign_and_publish_only == 'true' && needs.sign-windows.result == 'success') || (needs.prepare.outputs.sign_and_publish_only != 'true' && needs.build-mac.result == 'success')) }}
     needs: [prepare, build-mac, build-windows, sign-windows]
     runs-on: ubuntu-latest
     name: Upload to R2
@@ -1270,11 +1266,12 @@ jobs:
           MAC="${{ needs.build-mac.result }}"
           WIN="${{ needs.build-windows.result }}"
           SIGN="${{ needs.sign-windows.result }}"
+          SIGN_ONLY="${{ needs.prepare.outputs.sign_and_publish_only }}"
           R2="${{ job.status }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          MAC_ICON=$( [ "$MAC" = "success" ] && echo "✅" || echo "❌" )
-          WIN_ICON=$( [ "$WIN" = "success" ] && echo "✅" || echo "❌" )
+          MAC_ICON=$( [ "$MAC" = "success" ] || [ "$SIGN_ONLY" = "true" ] && echo "✅" || echo "❌" )
+          WIN_ICON=$( [ "$WIN" = "success" ] || [ "$SIGN_ONLY" = "true" ] && echo "✅" || echo "❌" )
           SIGN_ICON=$( [ "$SIGN" = "success" ] && echo "✅" || echo "⏭️" )
           R2_ICON=$( [ "$R2" = "success" ] && echo "✅" || echo "❌" )
 
