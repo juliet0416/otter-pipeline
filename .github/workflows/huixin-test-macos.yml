@@ -1,5 +1,5 @@
 name: Huixin Test macOS Build
-run-name: Huixin Mac v${{ inputs.version }} @ ${{ inputs.source_sha }}
+run-name: Huixin notarization diagnostics for run 45321938113
 
 on:
   workflow_dispatch:
@@ -27,7 +27,39 @@ env:
   VITE_APP_CHANNEL: huixin-test
 
 jobs:
+  read-notarization-diagnostics:
+    if: github.ref == 'refs/heads/diag/huixin-notary-45321938113'
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Read the failed Huixin notarization result
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          diagnostic_log="$RUNNER_TEMP/huixin-notary-45321938113.json"
+          xcrun notarytool log 55882a11-6ba0-406d-9612-67e629a357ba \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" "$diagnostic_log"
+          python3 - "$diagnostic_log" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1]) as f:
+              report = json.load(f)
+          print('Apple notarization status:', report.get('status'))
+          print('Apple notarization issues:')
+          for issue in (report.get('issues') or [])[:40]:
+              print(json.dumps({key: str(issue.get(key) or '')[:400] for key in
+                                ('severity', 'architecture', 'path', 'message')}))
+          PY
+
   build-mac:
+    if: github.ref != 'refs/heads/diag/huixin-notary-45321938113'
     name: Build and notarize Apple Silicon installer
     runs-on: macos-latest
     timeout-minutes: 60
