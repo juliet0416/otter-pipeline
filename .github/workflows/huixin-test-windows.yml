@@ -1,0 +1,167 @@
+name: Huixin Test Windows Build
+run-name: Huixin Windows v${{ inputs.version }} @ ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full SHA of the enterprise source to package
+        required: true
+        type: string
+      version:
+        description: Installer version (major.minor.patch)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: huixin-test-windows-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPO: OtterMind/ottermind
+  HUIXIN_SOURCE_SHA: ${{ inputs.source_sha }}
+  HUIXIN_VERSION: ${{ inputs.version }}
+  VITE_APP_CHANNEL: huixin-test
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.archive.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify requested enterprise commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          [[ "$HUIXIN_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HUIXIN_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$(gh api "repos/$SOURCE_REPO" --jq .visibility)" = private
+          status="$(gh api "repos/$SOURCE_REPO/compare/$HUIXIN_SOURCE_SHA...enterprise" --jq .status)"
+          [[ "$status" == identical || "$status" == ahead ]]
+      - name: Check out pinned desktop source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ inputs.source_sha }}
+          token: ${{ secrets.PRIVATE_REPO_PAT }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.6'
+      - name: Verify Huixin profile and prepare dependencies
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HUIXIN_SOURCE_SHA"
+          profile=apps/desktop/.env.huixin-test
+          grep -Fxq 'VITE_APP_CHANNEL=huixin-test' "$profile"
+          grep -Fxq 'VITE_APP_URL=https://test.ottermind.cn' "$profile"
+          grep -Fxq 'VITE_API_URL=https://test.ottermind.cn' "$profile"
+          grep -Fxq 'VITE_APP_ID=com.ottermind.huixin.test' "$profile"
+          grep -Fxq 'VITE_DESKTOP_SCHEME=ottermind-huixin-test' .env.test
+          bun install --frozen-lockfile
+          bun --cwd packages/types run build
+          node ../scripts/prepare-huixin-windows.mjs
+      - name: Build NSIS installer
+        working-directory: source/apps/desktop
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          VITE_APP_VERSION: ${{ inputs.version }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: node scripts/build.mjs --win --arch x64
+      - name: Verify installer and record unsigned digest
+        id: archive
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ../scripts/verify-huixin-windows.mjs
+          file="apps/desktop/dist/huixin_test_ottermind-${HUIXIN_VERSION}-setup.exe"
+          echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Save unsigned installer for signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: huixin-windows-unsigned-${{ github.run_attempt }}
+          path: source/apps/desktop/dist/huixin_test_ottermind-${{ inputs.version }}-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  sign-windows:
+    needs: build-windows
+    runs-on: [self-hosted, codesign]
+    timeout-minutes: 40
+    steps:
+      - name: Download unsigned installer from Actions
+        uses: actions/download-artifact@v4
+        with:
+          name: huixin-windows-unsigned-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/huixin-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verify unsigned bytes and apply Windows signature
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.build-windows.outputs.sha256 }}
+          SIGN_DIR: ${{ runner.temp }}/huixin-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          file="$SIGN_DIR/huixin_test_ottermind-${HUIXIN_VERSION}-setup.exe"
+          printf '%s  %s\n' "$EXPECTED_SHA256" "$file" | sha256sum -c -
+          command -v sign.sh
+          sign.sh "$file"
+          test "$(sha256sum "$file" | cut -d' ' -f1)" != "$EXPECTED_SHA256"
+      - name: Save signed installer for verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: huixin-windows-signed-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/huixin-${{ github.run_id }}-${{ github.run_attempt }}/huixin_test_ottermind-${{ inputs.version }}-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  verify-and-publish:
+    needs: sign-windows
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: huixin-windows-signed-${{ github.run_attempt }}
+          path: signed
+      - name: Verify Windows Authenticode and timestamp
+        shell: pwsh
+        run: |
+          $file = "signed/huixin_test_ottermind-${env:HUIXIN_VERSION}-setup.exe"
+          $signature = Get-AuthenticodeSignature -FilePath $file
+          if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) {
+            throw "Invalid or un-timestamped installer signature: $($signature.Status)"
+          }
+          Write-Host "Verified Authenticode signer: $($signature.SignerCertificate.Subject)"
+      - name: Save to private draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$SOURCE_REPO" --jq .visibility)" = private
+          file="signed/huixin_test_ottermind-${HUIXIN_VERSION}-setup.exe"
+          digest="$(sha256sum "$file" | cut -d' ' -f1)"
+          tag="huixin-test-windows-v${HUIXIN_VERSION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          notes="$(printf 'Source commit `%s`\n\nInstaller SHA-256 `%s`\n' "$HUIXIN_SOURCE_SHA" "$digest")"
+          url="$(gh release create "$tag" "$file" --repo "$SOURCE_REPO" \
+            --draft --prerelease --latest=false --target "$HUIXIN_SOURCE_SHA" \
+            --title "Huixin Windows Test ${HUIXIN_VERSION}" --notes "$notes")"
+          printf 'Signed installer: [private draft release](%s).\n' "$url" >> "$GITHUB_STEP_SUMMARY"

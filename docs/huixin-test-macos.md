@@ -31,3 +31,11 @@ gh workflow run huixin-test-macos.yml --repo juliet0416/otter-pipeline \
 Open the private Release draft linked in the workflow summary to download the signed DMG. Its notes record the source SHA and installer SHA-256. Each run attempt has a distinct draft tag. The first package uses manual distribution with update checks disabled.
 
 After installing on a test Mac, verify browser login, Finder personal space, on-demand reading and sign-out cleanup.
+
+## Windows x64 test package
+
+The separate `huixin-test-windows.yml` manual workflow takes the same
+`source_sha` and `version` inputs. It builds and verifies the Huixin NSIS
+installer, transfers the unsigned EXE to the hardware signing runner through a
+private Actions artifact, verifies the timestamped Windows signature, and saves
+the result to a private draft Release. This workflow uses no CDN distribution.
