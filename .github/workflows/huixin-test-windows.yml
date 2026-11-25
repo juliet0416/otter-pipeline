@@ -2,6 +2,17 @@ name: Huixin Test Windows Build
 run-name: Huixin Windows v${{ inputs.version }} @ ${{ inputs.source_sha }}
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      PRIVATE_REPO_PAT:
+        required: true
   workflow_dispatch:
     inputs:
       source_sha:
