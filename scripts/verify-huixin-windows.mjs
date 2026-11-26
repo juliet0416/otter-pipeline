@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { normalize, resolve } from 'node:path';
 
 const dist = resolve('apps/desktop/dist');
 const installer = resolve(dist, `huixin_test_ottermind-${process.env.HUIXIN_VERSION}-setup.exe`);
@@ -26,7 +26,7 @@ const asar = require('@electron/asar');
 const archive = resolve(app, 'resources/app.asar');
 const pkg = JSON.parse(asar.extractFile(archive, 'package.json'));
 assert.equal(pkg.version, process.env.HUIXIN_VERSION);
-const main = asar.extractFile(archive, pkg.main.replace(/^\.\//, '')).toString('utf8');
+const main = asar.extractFile(archive, normalize(pkg.main)).toString('utf8');
 assert(main.includes('https://test.ottermind.cn'), 'Missing Huixin test server');
 assert(main.includes('com.ottermind.huixin.test'), 'Missing Huixin app ID');
 assert(main.includes('ottermind-huixin-test'), 'Missing Huixin protocol');
