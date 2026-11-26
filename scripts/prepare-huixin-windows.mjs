@@ -13,8 +13,9 @@ accessSync(binary, constants.F_OK);
 
 const agentRequire = createRequire(resolve('apps/agent/package.json'));
 const ffmpeg = agentRequire('ffmpeg-static');
+accessSync(ffmpeg, constants.F_OK);
 const license = join(dirname(agentRequire.resolve('ffmpeg-static/package.json')), 'ffmpeg.LICENSE');
-if (!existsSync(license) && existsSync(`${ffmpeg}.LICENSE`)) {
+if (!existsSync(license)) {
   copyFileSync(`${ffmpeg}.LICENSE`, license);
 }
 

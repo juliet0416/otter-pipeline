@@ -34,8 +34,23 @@ After installing on a test Mac, verify browser login, Finder personal space, on-
 
 ## Windows x64 test package
 
-The separate `huixin-test-windows.yml` manual workflow takes the same
-`source_sha` and `version` inputs. It builds and verifies the Huixin NSIS
-installer, transfers the unsigned EXE to the hardware signing runner through a
-private Actions artifact, verifies the timestamped Windows signature, and saves
-the result to a private draft Release. This workflow uses no CDN distribution.
+The manual `huixin-test-windows.yml` workflow builds on Windows Server 2022 with
+Visual Studio 2022 and checks for the x64 Cloud Files provider in the installer
+payload. Use `source_channel=windows-dev` for a pinned commit on
+`feat/enterprise-windows-cloud-files`. Use the default `enterprise` after that
+branch includes the Windows provider.
+
+```sh
+gh workflow run huixin-test-windows.yml --repo juliet0416/otter-pipeline \
+  --field source_channel=windows-dev --field 'source_sha=<full-windows-source-sha>' \
+  --field version=0.1.0
+```
+
+The jobs transfer the installer through a draft Release inside private
+`OtterMind/ottermind`. Configure `PRIVATE_REPO_PAT` with source read and Release
+write access. The `codesign` runner uses the existing `sign.sh` hardware signer.
+The final Windows job checks Authenticode and its timestamp, verifies the
+signed SHA-256, removes the unsigned asset from that draft, and gives the
+verified installer its delivery name. The draft remains private. If a run
+fails after staging, its draft shows signing pending and may contain an
+unsigned or unverified candidate. Rerun all jobs for a fresh draft.
